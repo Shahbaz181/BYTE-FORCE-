@@ -2,9 +2,9 @@
 'use server';
 
 /**
- * @fileOverview Implements the Guardian Angel Mode, which uses AI to monitor audio, location name, and movement for distress signals.
+ * @fileOverview Implements the Guardian Angel Mode, which uses AI to monitor audio, location name, and movement for distress signals and provide safety tips.
  *
- * - analyzeUserContext - Analyzes user audio, location name, and movement data to detect distress.
+ * - analyzeUserContext - Analyzes user audio, location name, and movement data to detect distress and offer tips.
  * - AnalyzeUserContextInput - Input type for analyzeUserContext function.
  * - AnalyzeUserContextOutput - Output type for analyzeUserContext function.
  */
@@ -36,7 +36,8 @@ const AnalyzeUserContextOutputSchema = z.object({
     .describe(
       'True if the AI detects signs of distress based on audio, location name, and movement data.'
     ),
-  reason: z.string().describe('The reason for the distress detection, if any.'),
+  reason: z.string().describe('The reason for the distress detection, if any, or a summary if not distressed.'),
+  safetyTips: z.array(z.string()).optional().describe('Actionable safety tips. If distressed, tips are specific to the situation. If not distressed or if analysis is inconclusive, general safety advice may be provided.'),
 });
 export type AnalyzeUserContextOutput = z.infer<typeof AnalyzeUserContextOutputSchema>;
 
@@ -63,6 +64,11 @@ Movement Data: {{{movementData}}}
 
 Based on your analysis, determine if the user is distressed and provide a concise reason for your determination.
 Set isDistressed to true if distress is detected; otherwise, set it to false.
+
+Additionally, provide a list of 2-3 actionable safetyTips:
+- If isDistressed is true, provide specific tips to help the user in their current situation based on all available context (e.g., "Try to move to a well-lit, public area if possible," "Discreetly call emergency services if you can," "Make noise to attract attention if you feel it's safe to do so.").
+- If isDistressed is false, provide general safety tips relevant to being out, considering the provided location name and movement data (e.g., "Always be aware of your surroundings," "Share your location with a trusted contact if you're in an unfamiliar area," "If you feel uneasy, trust your instincts and leave the area.").
+- If you cannot determine distress due to lack of information or unclear audio, you may omit safetyTips or provide very generic ones. The reason field should explain the difficulty.
 `,
 });
 
@@ -74,15 +80,9 @@ const analyzeUserContextFlow = ai.defineFlow(
   },
   async (input: AnalyzeUserContextInput): Promise<AnalyzeUserContextOutput> => {
     try {
-      // Genkit implicitly validates input against the schema before calling the flow handler.
-      // If audioDataUri is invalid (e.g., empty Base64 part due to new regex), 
-      // an error should be thrown by Genkit/Zod before this point, 
-      // or the call to the prompt might fail if validation happens there.
-
       const {output} = await analyzeUserContextPrompt(input);
       
       if (!output) {
-        // This case might occur if the model returns a non-parsable response or no response.
         console.error('analyzeUserContextPrompt returned no output or unparsable output for input:', { 
             placeName: input.placeName, 
             movementData: input.movementData, 
@@ -91,29 +91,31 @@ const analyzeUserContextFlow = ai.defineFlow(
         return {
           isDistressed: false,
           reason: "AI analysis could not be completed or returned an unexpected result. Please ensure all inputs are valid and the audio recording was successful.",
+          safetyTips: [], // Explicitly provide empty tips on unexpected output
         };
       }
-      return output;
+      // Ensure safetyTips is an array if it's undefined in the output but expected (Zod schema handles optional)
+      return { ...output, safetyTips: output.safetyTips || [] };
     } catch (error: any) {
-        // This catch block handles errors from the analyzeUserContextPrompt call (e.g., API errors from Google)
-        // or Zod validation errors if they are not caught earlier by Genkit's infrastructure.
         console.error("Error in analyzeUserContextFlow:", error.message || error, "Input (audioDataUri possibly truncated):", { 
             placeName: input.placeName, 
             movementData: input.movementData, 
             audioDataUriLength: input.audioDataUri?.length,
-            audioDataUriStart: input.audioDataUri?.substring(0, 80) + "..." // Log a bit more of the start
+            audioDataUriStart: input.audioDataUri?.substring(0, 80) + "..." 
         });
         
         let reasonMessage = `AI analysis failed. ${error.message || 'The provided audio or other data might be invalid or an unexpected issue occurred.'}`;
-        if (error.errors && Array.isArray(error.errors)) { // Check for Zod error structure
+        if (error.errors && Array.isArray(error.errors)) { 
           reasonMessage = `AI analysis failed due to invalid input: ${error.errors.map((e: any) => `${e.path.join('.')} - ${e.message}`).join(', ')}. Please check your input, especially the audio recording.`;
         } else if (error.message && error.message.includes("Request contains an invalid argument")) {
+            // This specific error is often due to empty or malformed audio.
             reasonMessage = "AI analysis failed: The recorded audio data was considered invalid by the analysis service. This might be due to an empty recording, unsupported audio format characteristics, or a very short/corrupted audio clip. Please try re-recording.";
         }
 
         return {
             isDistressed: false,
             reason: reasonMessage,
+            safetyTips: [], // Provide empty tips on failure
         };
     }
   }

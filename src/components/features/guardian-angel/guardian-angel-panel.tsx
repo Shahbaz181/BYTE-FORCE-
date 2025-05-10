@@ -22,6 +22,16 @@ const guardianAngelSchema = z.object({
 
 type GuardianAngelFormData = z.infer<typeof guardianAngelSchema>;
 
+const GENERIC_SAFETY_TIPS = [
+  "Stay aware of your surroundings at all times.",
+  "Trust your instincts. If a situation or person makes you feel uneasy, remove yourself from the situation if possible.",
+  "Keep your phone charged and easily accessible.",
+  "When out alone, especially at night or in unfamiliar areas, share your live location with a trusted contact.",
+  "Avoid poorly lit or deserted areas. Stick to well-traveled routes.",
+  "If you think you are being followed, go to a public place, a store, or knock on a door for help."
+];
+
+
 export function GuardianAngelPanel() {
   const [isModeActive, setIsModeActive] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -47,9 +57,9 @@ export function GuardianAngelPanel() {
       recordingTimeoutRef.current = null;
     }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-      mediaRecorderRef.current.stop(); // This will trigger 'onstop'
+      mediaRecorderRef.current.stop(); 
     }
-    // If 'onstop' doesn't fire or stream needs cleanup regardless (e.g. on unmount/deactivate)
+    
     if (audioStream) {
       audioStream.getTracks().forEach(track => track.stop());
       setAudioStream(null);
@@ -58,7 +68,6 @@ export function GuardianAngelPanel() {
 
 
   useEffect(() => {
-    // Cleanup: stop recording and stream when component unmounts or audioStream changes
     return () => {
       stopRecordingAndStream();
     };
@@ -70,7 +79,7 @@ export function GuardianAngelPanel() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         setAudioStream(stream);
-        mediaRecorderRef.current = new MediaRecorder(stream);
+        mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'audio/webm' });
         audioChunksRef.current = [];
 
         mediaRecorderRef.current.ondataavailable = (event) => {
@@ -78,19 +87,31 @@ export function GuardianAngelPanel() {
         };
 
         mediaRecorderRef.current.onstop = () => {
+          if (audioChunksRef.current.length === 0) {
+            console.warn("Audio recording stopped with no data chunks.");
+            setAudioDataUri(null); // Explicitly set to null if no data
+             toast({ title: "Recording Issue", description: "No audio data was captured. Please try again.", variant: "destructive", duration: 3000 });
+            return;
+          }
           const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
           const reader = new FileReader();
           reader.readAsDataURL(audioBlob);
           reader.onloadend = () => {
-            setAudioDataUri(reader.result as string);
-            toast({ title: "Audio Recorded", description: "Audio captured for analysis.", duration: 2000 });
+            const resultDataUri = reader.result as string;
+            // Check if the Base64 part is empty
+            if (resultDataUri.split(',')[1]?.length > 0) {
+                setAudioDataUri(resultDataUri);
+                toast({ title: "Audio Recorded", description: "Audio captured for analysis.", duration: 2000 });
+            } else {
+                setAudioDataUri(null);
+                toast({ title: "Recording Error", description: "Recorded audio was empty. Please try again.", variant: "destructive", duration: 3000 });
+            }
           };
-          // Ensure stream is fully stopped and UI updated
-          if (stream) { // Use the 'stream' variable from the closure which is the current MediaStream
+          if (stream) { 
             stream.getTracks().forEach(track => track.stop());
           }
-          setAudioStream(null); // Update UI to reflect recording has stopped
-          if (recordingTimeoutRef.current) { // Clear timeout if onstop is called
+          setAudioStream(null); 
+          if (recordingTimeoutRef.current) { 
             clearTimeout(recordingTimeoutRef.current);
             recordingTimeoutRef.current = null;
           }
@@ -105,7 +126,7 @@ export function GuardianAngelPanel() {
            if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
                 mediaRecorderRef.current.stop();
            }
-        }, 5000);
+        }, 5000); // 5 seconds recording
 
       } catch (err) {
         console.error("Error accessing microphone:", err);
@@ -119,14 +140,13 @@ export function GuardianAngelPanel() {
 
   const handleStopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-      mediaRecorderRef.current.stop(); // This will trigger the 'onstop' event handler
+      mediaRecorderRef.current.stop(); 
       toast({ title: "Recording Stopped", description: "Audio capture processing...", duration: 2000 });
     }
     if (recordingTimeoutRef.current) {
       clearTimeout(recordingTimeoutRef.current);
       recordingTimeoutRef.current = null;
     }
-    // `onstop` handler will manage setting audioDataUri and setting audioStream to null
   };
 
   const onSubmit = async (data: GuardianAngelFormData) => {
@@ -134,6 +154,11 @@ export function GuardianAngelPanel() {
       toast({ title: "Audio Required", description: "Please record audio before submitting for analysis.", variant: "destructive" });
       return;
     }
+     if (audioDataUri.split(',')[1]?.length === 0) {
+      toast({ title: "Empty Audio", description: "The recorded audio is empty. Please re-record.", variant: "destructive" });
+      return;
+    }
+
 
     setIsLoading(true);
     setAnalysisResult(null);
@@ -149,13 +174,13 @@ export function GuardianAngelPanel() {
       if (result.isDistressed) {
         toast({ title: "Distress Detected!", description: result.reason, variant: "destructive", duration: 7000 });
       } else {
-        toast({ title: "Analysis Complete", description: "No immediate distress signals detected.", duration: 5000 });
+        toast({ title: "Analysis Complete", description: result.reason || "No immediate distress signals detected.", duration: 5000 });
       }
     } catch (error: any) {
       console.error("Error analyzing context:", error);
       const errorMessage = error.message ? error.message : "Could not complete analysis.";
       toast({ title: "Analysis Error", description: errorMessage, variant: "destructive" });
-      setAnalysisResult({isDistressed: false, reason: `Analysis failed: ${errorMessage}`});
+      setAnalysisResult({isDistressed: false, reason: `Analysis failed: ${errorMessage}`, safetyTips: []});
     } finally {
       setIsLoading(false);
     }
@@ -176,6 +201,8 @@ export function GuardianAngelPanel() {
     setIsModeActive(false);
     setIsLoading(false);
     stopRecordingAndStream();
+    setAudioDataUri(null);
+    setAnalysisResult(null);
     toast({
       title: 'Guardian Angel Mode Deactivated',
     });
@@ -254,6 +281,7 @@ export function GuardianAngelPanel() {
             </div>
             {audioStream && <p className="text-xs text-center text-primary animate-pulse">Recording in progress...</p>}
             {audioDataUri && !audioStream && <p className="text-xs text-green-600 text-center">Audio captured successfully.</p>}
+            {!audioDataUri && !audioStream && mediaRecorderRef.current && <p className="text-xs text-muted-foreground text-center">Ready to record or recording failed to capture data.</p>}
           </div>
 
            {isLoading && (
@@ -264,12 +292,35 @@ export function GuardianAngelPanel() {
           )}
 
           {analysisResult && !isLoading && (
-            <div className={`mt-4 p-3 rounded-md border ${analysisResult.isDistressed ? 'bg-destructive/10 border-destructive text-destructive' : 'bg-green-100 border-green-400 text-green-700'}`}>
-              <h4 className="font-semibold flex items-center">
+            <div className={`mt-4 p-4 rounded-md border ${analysisResult.isDistressed ? 'bg-destructive/10 border-destructive text-destructive' : 'bg-green-100 border-green-400 text-green-700'}`}>
+              <h4 className="font-semibold flex items-center text-lg mb-2">
                 {analysisResult.isDistressed && <AlertTriangle className="mr-2 h-5 w-5" />}
                 Analysis Result:
               </h4>
-              <p className="text-sm">{analysisResult.isDistressed ? `Distress Detected: ${analysisResult.reason}` : `No Distress Detected: ${analysisResult.reason || "All seems calm."}`}</p>
+              <p className="text-sm mb-3">{analysisResult.reason || (analysisResult.isDistressed ? "Distress detected." : "No immediate distress signals detected.")}</p>
+
+              {(() => {
+                const analysisFailed = analysisResult.reason && (analysisResult.reason.toLowerCase().includes("analysis failed") || analysisResult.reason.toLowerCase().includes("audio data was considered invalid"));
+                const tipsToDisplay = (analysisResult.safetyTips && analysisResult.safetyTips.length > 0)
+                  ? analysisResult.safetyTips
+                  : (analysisFailed || analysisResult.isDistressed === false) ? GENERIC_SAFETY_TIPS : null;
+
+                if (tipsToDisplay && tipsToDisplay.length > 0) {
+                  return (
+                    <>
+                      <h5 className="font-semibold text-md mt-3 mb-1">
+                        { (analysisResult.safetyTips && analysisResult.safetyTips.length > 0 && !analysisFailed) ? "Personalized Safety Tips:" : "General Safety Tips:"}
+                      </h5>
+                      <ul className="list-disc list-inside text-sm space-y-1">
+                        {tipsToDisplay.map((tip, index) => (
+                          <li key={index}>{tip}</li>
+                        ))}
+                      </ul>
+                    </>
+                  );
+                }
+                return null;
+              })()}
             </div>
           )}
 
