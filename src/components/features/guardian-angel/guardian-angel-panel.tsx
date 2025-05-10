@@ -64,6 +64,9 @@ export function GuardianAngelPanel() {
       audioStream.getTracks().forEach(track => track.stop());
       setAudioStream(null);
     }
+    // Optionally, fully reset recorder and chunks here if necessary
+    // mediaRecorderRef.current = null;
+    // audioChunksRef.current = [];
   }, [audioStream]);
 
 
@@ -75,49 +78,80 @@ export function GuardianAngelPanel() {
 
 
   const startRecording = async () => {
+    if (audioStream || (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording")) {
+      toast({ title: "Recording Active", description: "A recording is already in progress or microphone is active.", variant: "default" });
+      return;
+    }
+
+    // Reset previous audio data states
+    setAudioDataUri(null);
+    audioChunksRef.current = [];
+    setAnalysisResult(null); // Clear previous analysis results
+
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        setAudioStream(stream);
-        mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-        audioChunksRef.current = [];
+        setAudioStream(stream); // Indicates recording process has started
+
+        const optionsAudioWebMOpus = { mimeType: 'audio/webm;codecs=opus' };
+        const optionsAudioWebM = { mimeType: 'audio/webm' };
+        let recorder;
+
+        if (MediaRecorder.isTypeSupported(optionsAudioWebMOpus.mimeType)) {
+            recorder = new MediaRecorder(stream, optionsAudioWebMOpus);
+        } else if (MediaRecorder.isTypeSupported(optionsAudioWebM.mimeType)) {
+            recorder = new MediaRecorder(stream, optionsAudioWebM);
+            console.warn("audio/webm;codecs=opus not supported, using default audio/webm.");
+        } else {
+            toast({ title: "Unsupported Format", description: "Audio/webm recording is not supported by your browser.", variant: "destructive" });
+            stream.getTracks().forEach(track => track.stop());
+            setAudioStream(null);
+            return;
+        }
+        
+        mediaRecorderRef.current = recorder;
 
         mediaRecorderRef.current.ondataavailable = (event) => {
-          audioChunksRef.current.push(event.data);
+          if (event.data && event.data.size > 0) {
+            audioChunksRef.current.push(event.data);
+          }
         };
 
         mediaRecorderRef.current.onstop = () => {
           if (audioChunksRef.current.length === 0) {
             console.warn("Audio recording stopped with no data chunks.");
-            setAudioDataUri(null); // Explicitly set to null if no data
-             toast({ title: "Recording Issue", description: "No audio data was captured. Please try again.", variant: "destructive", duration: 3000 });
-            return;
-          }
-          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-          const reader = new FileReader();
-          reader.readAsDataURL(audioBlob);
-          reader.onloadend = () => {
-            const resultDataUri = reader.result as string;
-            // Check if the Base64 part is empty
-            if (resultDataUri.split(',')[1]?.length > 0) {
-                setAudioDataUri(resultDataUri);
-                toast({ title: "Audio Recorded", description: "Audio captured for analysis.", duration: 2000 });
-            } else {
+            setAudioDataUri(null);
+            toast({ title: "Recording Issue", description: "No audio data was captured. Microphone might not be recording sound. Please check mic and try again.", variant: "destructive", duration: 4000 });
+          } else {
+            const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorderRef.current?.mimeType || 'audio/webm' });
+            const reader = new FileReader();
+            reader.readAsDataURL(audioBlob);
+            reader.onloadend = () => {
+              const resultDataUri = reader.result as string;
+              if (resultDataUri && resultDataUri.split(',')[1]?.length > 0) {
+                  setAudioDataUri(resultDataUri);
+                  toast({ title: "Audio Recorded", description: "Audio captured successfully for analysis.", duration: 2000 });
+              } else {
+                  setAudioDataUri(null);
+                  toast({ title: "Recording Error", description: "Recorded audio was empty or corrupted. Please try re-recording.", variant: "destructive", duration: 4000 });
+              }
+            };
+            reader.onerror = () => {
                 setAudioDataUri(null);
-                toast({ title: "Recording Error", description: "Recorded audio was empty. Please try again.", variant: "destructive", duration: 3000 });
-            }
-          };
-          if (stream) { 
-            stream.getTracks().forEach(track => track.stop());
+                toast({ title: "File Reading Error", description: "Could not process the recorded audio. Please try again.", variant: "destructive", duration: 3000 });
+            };
           }
+          // Cleanup stream tracks and state, done after processing
+          stream.getTracks().forEach(track => track.stop());
           setAudioStream(null); 
           if (recordingTimeoutRef.current) { 
             clearTimeout(recordingTimeoutRef.current);
             recordingTimeoutRef.current = null;
           }
         };
+        
         mediaRecorderRef.current.start();
-        toast({ title: "Recording Started", description: "Capturing audio for 5 seconds.", duration: 2000 });
+        toast({ title: "Recording Started", description: "Capturing audio for 5 seconds...", duration: 2000 });
         
         if (recordingTimeoutRef.current) {
           clearTimeout(recordingTimeoutRef.current);
@@ -126,22 +160,34 @@ export function GuardianAngelPanel() {
            if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
                 mediaRecorderRef.current.stop();
            }
-        }, 5000); // 5 seconds recording
+        }, 5000);
 
-      } catch (err) {
-        console.error("Error accessing microphone:", err);
-        toast({ title: "Microphone Error", description: "Could not access microphone. Please check permissions.", variant: "destructive" });
+      } catch (err: any) {
+        console.error("Error accessing microphone:", err.name, err.message);
+        let description = "Could not access microphone. Please check permissions.";
+        if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+            description = "Microphone access denied. Please enable it in your browser settings.";
+        } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+            description = "No microphone found. Please ensure a microphone is connected and enabled.";
+        } else if (err.name === "NotReadableError" || err.name === "TrackStartError" || err.name === "OverconstrainedError") {
+            description = "Microphone is already in use, cannot be accessed, or does not support required constraints. Please check other apps or browser tabs, or try a different microphone.";
+        } else if (err.name === "AbortError") {
+             description = "Microphone access was aborted. This can happen if another device request took precedence.";
+        }
+        toast({ title: "Microphone Error", description, variant: "destructive", duration: 5000 });
         setAudioStream(null);
       }
     } else {
-      toast({ title: "Unsupported", description: "Audio recording is not supported by your browser.", variant: "destructive" });
+      toast({ title: "Unsupported Browser", description: "Audio recording (getUserMedia) is not supported by your browser.", variant: "destructive" });
     }
   };
 
   const handleStopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
       mediaRecorderRef.current.stop(); 
-      toast({ title: "Recording Stopped", description: "Audio capture processing...", duration: 2000 });
+      // onstop will handle toasts and state changes like setAudioStream(null)
+    } else {
+        toast({ title: "Not Recording", description: "There is no active recording to stop.", duration: 2000});
     }
     if (recordingTimeoutRef.current) {
       clearTimeout(recordingTimeoutRef.current);
@@ -155,10 +201,9 @@ export function GuardianAngelPanel() {
       return;
     }
      if (audioDataUri.split(',')[1]?.length === 0) {
-      toast({ title: "Empty Audio", description: "The recorded audio is empty. Please re-record.", variant: "destructive" });
+      toast({ title: "Empty Audio", description: "The recorded audio is empty or invalid. Please re-record.", variant: "destructive" });
       return;
     }
-
 
     setIsLoading(true);
     setAnalysisResult(null);
@@ -180,7 +225,8 @@ export function GuardianAngelPanel() {
       console.error("Error analyzing context:", error);
       const errorMessage = error.message ? error.message : "Could not complete analysis.";
       toast({ title: "Analysis Error", description: errorMessage, variant: "destructive" });
-      setAnalysisResult({isDistressed: false, reason: `Analysis failed: ${errorMessage}`, safetyTips: []});
+      // Ensure analysisResult is set to a non-distressed state on error to avoid misleading UI
+      setAnalysisResult({isDistressed: false, reason: `Analysis failed: ${errorMessage}`, safetyTips: GENERIC_SAFETY_TIPS});
     } finally {
       setIsLoading(false);
     }
@@ -190,6 +236,7 @@ export function GuardianAngelPanel() {
     setIsModeActive(true);
     setAnalysisResult(null); 
     setAudioDataUri(null); 
+    audioChunksRef.current = [];
     reset(); 
     toast({
       title: 'Guardian Angel Mode Activated',
@@ -200,9 +247,10 @@ export function GuardianAngelPanel() {
   const deactivateMode = () => {
     setIsModeActive(false);
     setIsLoading(false);
-    stopRecordingAndStream();
+    stopRecordingAndStream(); // This will stop recording and cleanup
     setAudioDataUri(null);
     setAnalysisResult(null);
+    audioChunksRef.current = [];
     toast({
       title: 'Guardian Angel Mode Deactivated',
     });
@@ -267,12 +315,12 @@ export function GuardianAngelPanel() {
           <div className="space-y-2">
             <Label className="flex items-center"><Mic className="mr-2 h-5 w-5" /> Record Audio (Max 5s)</Label>
             <div className="flex space-x-2">
-              {!audioStream ? (
+              {!audioStream ? ( // If not currently streaming (i.e. recording actively)
                 <Button type="button" variant="outline" onClick={startRecording} disabled={isLoading} className="flex-grow">
                   <Mic className="mr-2 h-4 w-4" />
                   {audioDataUri ? 'Re-record Audio' : 'Start Recording'}
                 </Button>
-              ) : (
+              ) : ( // If audioStream exists, means recording is active
                 <Button type="button" variant="destructive" onClick={handleStopRecording} disabled={isLoading} className="flex-grow">
                   <StopCircle className="mr-2 h-4 w-4" />
                   Stop Recording
@@ -280,8 +328,12 @@ export function GuardianAngelPanel() {
               )}
             </div>
             {audioStream && <p className="text-xs text-center text-primary animate-pulse">Recording in progress...</p>}
-            {audioDataUri && !audioStream && <p className="text-xs text-green-600 text-center">Audio captured successfully.</p>}
-            {!audioDataUri && !audioStream && mediaRecorderRef.current && <p className="text-xs text-muted-foreground text-center">Ready to record or recording failed to capture data.</p>}
+            {audioDataUri && !audioStream && <p className="text-xs text-green-600 text-center">Audio captured. Ready for analysis.</p>}
+            {!audioDataUri && !audioStream && 
+              (mediaRecorderRef.current && mediaRecorderRef.current.state === "inactive" && audioChunksRef.current.length === 0 ? 
+                <p className="text-xs text-muted-foreground text-center">Recording may have failed or captured no data. Try again.</p> : 
+                <p className="text-xs text-muted-foreground text-center">Ready to record.</p>)
+            }
           </div>
 
            {isLoading && (
