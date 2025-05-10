@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from 'next/link';
@@ -6,7 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { MapPin, ShieldAlert, Ear, ArrowRight, Users, Edit } from 'lucide-react';
 import Image from 'next/image';
 import { PageHeaderTitle } from '@/components/common/page-header-title';
-// AppHeader is in RootLayout, so not needed here.
+import { StandaloneAddContactForm } from '@/components/features/contacts/standalone-add-contact-form';
 
 const quickActions = [
   {
@@ -65,6 +66,12 @@ export default function DashboardPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Standalone Add Contact Form integrated into the dashboard */}
+        <div className="pt-6"> {/* Add some spacing above the form */}
+            <StandaloneAddContactForm />
+        </div>
+
 
         <Card className="shadow-lg">
           <CardHeader>
