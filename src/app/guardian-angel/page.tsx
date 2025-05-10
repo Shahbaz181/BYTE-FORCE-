@@ -6,7 +6,7 @@ export default function GuardianAngelPage() {
     <div className="container mx-auto py-8">
       <PageHeaderTitle 
         title="Guardian Angel Mode"
-        description="Activate enhanced monitoring when you feel uneasy. This feature uses AI to analyze your audio and location for signs of distress."
+        description="Feeling uneasy? Describe your situation, and our AI will provide an assessment and safety tips."
       />
       <GuardianAngelPanel />
     </div>

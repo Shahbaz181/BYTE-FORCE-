@@ -2,120 +2,109 @@
 'use server';
 
 /**
- * @fileOverview Implements the Guardian Angel Mode, which uses AI to monitor audio, location name, and movement for distress signals and provide safety tips.
+ * @fileOverview Implements the Guardian Angel Mode, which uses AI to analyze user-provided text describing their situation and provide safety tips.
  *
- * - analyzeUserContext - Analyzes user audio, location name, and movement data to detect distress and offer tips.
- * - AnalyzeUserContextInput - Input type for analyzeUserContext function.
- * - AnalyzeUserContextOutput - Output type for analyzeUserContext function.
+ * - analyzeSituationText - Analyzes user-provided text to assess the situation and offer safety tips.
+ * - AnalyzeSituationTextInput - Input type for analyzeSituationText function.
+ * - AnalyzeSituationTextOutput - Output type for analyzeSituationText function.
  */
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
-const AnalyzeUserContextInputSchema = z.object({
-  audioDataUri: z
+const AnalyzeSituationTextInputSchema = z.object({
+  situationText: z.string().min(5, "Please describe your situation in a bit more detail (minimum 5 characters).").max(1000, "Description is too long (maximum 1000 characters).").describe('Textual description of the user\'s current situation or concern.'),
+});
+export type AnalyzeSituationTextInput = z.infer<typeof AnalyzeSituationTextInputSchema>;
+
+const AnalyzeSituationTextOutputSchema = z.object({
+  assessment: z
     .string()
-    // Regex to validate a basic audio data URI structure.
-    // It checks for 'data:audio/', a MIME subtype, ';base64,', 
-    // and a non-empty, valid Base64 characters string.
-    // The (?=.+) positive lookahead asserts that there is at least one character after 'base64,'.
-    .refine(val => /^data:audio\/[a-zA-Z0-9.-]+;base64,(?=.+)([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{2}(==)?|[A-Za-z0-9+/]{3}=)?$/.test(val), {
-        message: "Audio data URI must be a valid, non-empty Base64 encoded audio data URI (e.g., 'data:audio/webm;base64,R0VO...'). Ensure it's not empty or malformed."
-    })
     .describe(
-      "The user's current audio stream, as a data URI that must include a MIME type (e.g., audio/webm or audio/wav) and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'. The encoded data part must not be empty."
+      'A brief assessment of the situation based on the provided text.'
     ),
-  placeName: z.string().min(1, "Place name cannot be empty.").describe('The name of the user\'s current location (e.g., "City Park", "123 Main St, Anytown").'),
-  movementData: z.string().min(1, "Movement data cannot be empty.").describe('Data about user movement, e.g. speed, acceleration, or a description like "walking fast", "stationary".'),
+  safetyTips: z.array(z.string()).describe('Actionable safety tips relevant to the described situation. Could be general if the situation is unclear.'),
 });
-export type AnalyzeUserContextInput = z.infer<typeof AnalyzeUserContextInputSchema>;
+export type AnalyzeSituationTextOutput = z.infer<typeof AnalyzeSituationTextOutputSchema>;
 
-const AnalyzeUserContextOutputSchema = z.object({
-  isDistressed: z
-    .boolean()
-    .describe(
-      'True if the AI detects signs of distress based on audio, location name, and movement data.'
-    ),
-  reason: z.string().describe('The reason for the distress detection, if any, or a summary if not distressed.'),
-  safetyTips: z.array(z.string()).optional().describe('Actionable safety tips. If distressed, tips are specific to the situation. If not distressed or if analysis is inconclusive, general safety advice may be provided.'),
-});
-export type AnalyzeUserContextOutput = z.infer<typeof AnalyzeUserContextOutputSchema>;
-
-export async function analyzeUserContext(
-  input: AnalyzeUserContextInput
-): Promise<AnalyzeUserContextOutput> {
-  return analyzeUserContextFlow(input);
+export async function analyzeSituationText(
+  input: AnalyzeSituationTextInput
+): Promise<AnalyzeSituationTextOutput> {
+  return analyzeSituationTextFlow(input);
 }
 
-const analyzeUserContextPrompt = ai.definePrompt({
-  name: 'analyzeUserContextPrompt',
-  input: {schema: AnalyzeUserContextInputSchema},
-  output: {schema: AnalyzeUserContextOutputSchema},
-  prompt: `You are an AI assistant designed to identify signs of distress in users based on audio, location name, and movement data.
+const analyzeSituationTextPrompt = ai.definePrompt({
+  name: 'analyzeSituationTextPrompt',
+  input: {schema: AnalyzeSituationTextInputSchema},
+  output: {schema: AnalyzeSituationTextOutputSchema},
+  prompt: `You are an AI assistant designed to help users who describe a potentially unsafe or concerning situation by providing an assessment and safety tips.
 
-You will receive the user's audio stream, location name, and movement data.
+The user has provided the following description of their situation:
+"{{{situationText}}}"
 
-Analyze the provided data to determine if the user is in distress. Consider factors such as their reported location name, erratic movements, and concerning audio cues (e.g., shouting, sounds of a struggle).
-If the location name suggests an isolated or potentially dangerous area, factor this into your analysis.
+Analyze this text to understand the context and potential risks.
+Provide:
+1. A brief 'assessment' of the situation.
+2. A list of 2-4 actionable 'safetyTips' tailored to the described situation.
 
-Audio Data: {{media url=audioDataUri}}
-Location Name: {{{placeName}}}
-Movement Data: {{{movementData}}}
-
-Based on your analysis, determine if the user is distressed and provide a concise reason for your determination.
-Set isDistressed to true if distress is detected; otherwise, set it to false.
-
-Additionally, provide a list of 2-3 actionable safetyTips:
-- If isDistressed is true, provide specific tips to help the user in their current situation based on all available context (e.g., "Try to move to a well-lit, public area if possible," "Discreetly call emergency services if you can," "Make noise to attract attention if you feel it's safe to do so.").
-- If isDistressed is false, provide general safety tips relevant to being out, considering the provided location name and movement data (e.g., "Always be aware of your surroundings," "Share your location with a trusted contact if you're in an unfamiliar area," "If you feel uneasy, trust your instincts and leave the area.").
-- If you cannot determine distress due to lack of information or unclear audio, you may omit safetyTips or provide very generic ones. The reason field should explain the difficulty.
+If the situation seems safe or lacks detail, your assessment should reflect that, and you should provide general safety advice.
+If the text is very short, vague, or does not seem to describe a safety concern, indicate that in the assessment and provide general safety tips.
+Focus on practical, actionable advice. If the situation sounds like an immediate emergency, one of the tips should be to contact emergency services.
 `,
+  // Example configuration for safety settings, adjust as needed
+  config: {
+    safetySettings: [
+      {
+        category: 'HARM_CATEGORY_HARASSMENT',
+        threshold: 'BLOCK_MEDIUM_AND_ABOVE',
+      },
+      {
+        category: 'HARM_CATEGORY_HATE_SPEECH',
+        threshold: 'BLOCK_MEDIUM_AND_ABOVE',
+      },
+      {
+        category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+        threshold: 'BLOCK_MEDIUM_AND_ABOVE',
+      },
+      {
+        category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+        threshold: 'BLOCK_MEDIUM_AND_ABOVE',
+      },
+    ],
+  },
 });
 
-const analyzeUserContextFlow = ai.defineFlow(
+const analyzeSituationTextFlow = ai.defineFlow(
   {
-    name: 'analyzeUserContextFlow',
-    inputSchema: AnalyzeUserContextInputSchema,
-    outputSchema: AnalyzeUserContextOutputSchema,
+    name: 'analyzeSituationTextFlow',
+    inputSchema: AnalyzeSituationTextInputSchema,
+    outputSchema: AnalyzeSituationTextOutputSchema,
   },
-  async (input: AnalyzeUserContextInput): Promise<AnalyzeUserContextOutput> => {
+  async (input: AnalyzeSituationTextInput): Promise<AnalyzeSituationTextOutput> => {
     try {
-      const {output} = await analyzeUserContextPrompt(input);
+      const {output} = await analyzeSituationTextPrompt(input);
       
       if (!output) {
-        console.error('analyzeUserContextPrompt returned no output or unparsable output for input:', { 
-            placeName: input.placeName, 
-            movementData: input.movementData, 
-            audioDataUriLength: input.audioDataUri.length 
-        });
+        console.error('analyzeSituationTextPrompt returned no output for input:', input.situationText);
         return {
-          isDistressed: false,
-          reason: "AI analysis could not be completed or returned an unexpected result. Please ensure all inputs are valid and the audio recording was successful.",
-          safetyTips: [], // Explicitly provide empty tips on unexpected output
+          assessment: "AI analysis could not be completed or returned an unexpected result. Please try rephrasing your concern.",
+          safetyTips: ["Ensure you are in a safe location.", "If you feel in danger, contact emergency services or a trusted person immediately."],
         };
       }
-      // Ensure safetyTips is an array if it's undefined in the output but expected (Zod schema handles optional)
-      return { ...output, safetyTips: output.safetyTips || [] };
+      return { ...output, safetyTips: output.safetyTips || ["Be aware of your surroundings.", "Trust your instincts."] };
     } catch (error: any) {
-        console.error("Error in analyzeUserContextFlow:", error.message || error, "Input (audioDataUri possibly truncated):", { 
-            placeName: input.placeName, 
-            movementData: input.movementData, 
-            audioDataUriLength: input.audioDataUri?.length,
-            audioDataUriStart: input.audioDataUri?.substring(0, 80) + "..." 
-        });
+        console.error("Error in analyzeSituationTextFlow:", error.message || error, "Input:", input.situationText);
         
-        let reasonMessage = `AI analysis failed. ${error.message || 'The provided audio or other data might be invalid or an unexpected issue occurred.'}`;
-        if (error.errors && Array.isArray(error.errors)) { 
-          reasonMessage = `AI analysis failed due to invalid input: ${error.errors.map((e: any) => `${e.path.join('.')} - ${e.message}`).join(', ')}. Please check your input, especially the audio recording.`;
+        let assessmentMessage = `AI analysis failed. ${error.message || 'An unexpected issue occurred.'}`;
+         if (error.errors && Array.isArray(error.errors)) { 
+          assessmentMessage = `AI analysis failed due to invalid input: ${error.errors.map((e: any) => `${e.path.join('.')} - ${e.message}`).join(', ')}. Please check your input.`;
         } else if (error.message && error.message.includes("Request contains an invalid argument")) {
-            // This specific error is often due to empty or malformed audio.
-            reasonMessage = "AI analysis failed: The recorded audio data was considered invalid by the analysis service. This might be due to an empty recording, unsupported audio format characteristics, or a very short/corrupted audio clip. Please try re-recording.";
+            assessmentMessage = "AI analysis failed: The provided text was considered invalid by the analysis service. This might be due to formatting or content issues. Please try rephrasing.";
         }
 
         return {
-            isDistressed: false,
-            reason: reasonMessage,
-            safetyTips: [], // Provide empty tips on failure
+            assessment: assessmentMessage,
+            safetyTips: ["If you're concerned, reach out to a trusted person.", "If you are in immediate danger, contact emergency services."],
         };
     }
   }
