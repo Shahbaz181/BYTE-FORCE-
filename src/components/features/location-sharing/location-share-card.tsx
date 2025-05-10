@@ -27,7 +27,7 @@ const shareDurations = [
 ];
 
 const locationShareSchema = z.object({
-  selectedGuardians: z.array(z.string()).min(1, "Select at least one guardian."),
+  selectedGuardians: z.array(z.string()).min(0, "Select at least one guardian or share via link.").optional(), // Made optional
   duration: z.string().min(1, "Select a duration."),
   customDurationMinutes: z.preprocess(
     (val) => {
@@ -81,7 +81,11 @@ export function LocationShareCard() {
         setAvailableGuardians([]);
       }
     }
-  }, []); // Load guardians once on mount
+  }, []);
+
+  const generateShareableLink = useCallback((latitude: number, longitude: number): string => {
+    return `https://www.google.com/maps?q=${latitude},${longitude}`;
+  }, []);
 
   const startRealTimeLocationSharing = useCallback(() => {
     if (!navigator.geolocation) {
@@ -91,11 +95,11 @@ export function LocationShareCard() {
     }
 
     setLocationError(null);
-    setCurrentLocation(null); 
+    // setCurrentLocation(null); // Keep previous or clear? Cleared on stopSharing
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
-        setCurrentLocation(position as GeoLocationPosition); 
+        setCurrentLocation(position as GeoLocationPosition);
         setLocationError(null);
       },
       (error) => {
@@ -108,13 +112,13 @@ export function LocationShareCard() {
           message = "The request to get user location timed out.";
         }
         setLocationError(message);
-        setCurrentLocation(null);
+        setCurrentLocation(null); // Clear location on error
         toast({ variant: "destructive", title: "Location Error", description: message });
       },
       {
         enableHighAccuracy: true,
-        timeout: 10000, 
-        maximumAge: 0, 
+        timeout: 10000,
+        maximumAge: 0,
       }
     );
   }, [toast]);
@@ -124,7 +128,8 @@ export function LocationShareCard() {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
-    //setCurrentLocation(null); // Keep last known location or clear, depends on desired UX. Clearing is safer.
+    setCurrentLocation(null); // Clear location when stopped
+    setLocationError(null);
   }, []);
 
   useEffect(() => {
@@ -133,10 +138,18 @@ export function LocationShareCard() {
     } else {
       stopRealTimeLocationSharing();
     }
-    return () => { 
+    return () => {
       stopRealTimeLocationSharing();
     };
   }, [isSharing, startRealTimeLocationSharing, stopRealTimeLocationSharing]);
+
+  // Update shareableLink whenever currentLocation changes while sharing
+  useEffect(() => {
+    if (isSharing && currentLocation) {
+      const newLink = generateShareableLink(currentLocation.coords.latitude, currentLocation.coords.longitude);
+      setShareableLink(newLink);
+    }
+  }, [currentLocation, isSharing, generateShareableLink]);
 
 
   const { control, handleSubmit, watch, formState: { errors }, setValue } = useForm<LocationShareFormData>({
@@ -144,50 +157,46 @@ export function LocationShareCard() {
     defaultValues: {
       selectedGuardians: [],
       duration: '30',
-      customDurationMinutes: undefined, 
+      customDurationMinutes: undefined,
     },
   });
 
   const selectedDuration = watch('duration');
 
-  const generateShareableLink = (): string => {
-    // In a real app, this would be a server-generated unique link
-    // For simulation, we use a timestamp-based link.
-    return `https://shesafe.app/live-location?session=${Date.now().toString(36)}-${Math.random().toString(36).substring(2,7)}`;
-  };
 
   const onSubmit = (data: LocationShareFormData) => {
     if (!navigator.geolocation) {
       toast({ variant: "destructive", title: "Geolocation Error", description: "Geolocation is not supported by your browser. Cannot start sharing." });
       return;
     }
-    // Try to get an initial location fix before "starting" sharing UX-wise
+    
+    toast({ title: "Fetching Location...", description: "Please wait while we get your current position."});
+
     navigator.geolocation.getCurrentPosition(
         (position) => {
             setCurrentLocation(position as GeoLocationPosition);
             setLocationError(null);
             
-            // Proceed with sharing setup
-            setIsSharing(true); 
+            setIsSharing(true);
             setSharingDetails(data);
-            const generatedLink = generateShareableLink();
-            setShareableLink(generatedLink);
+            const initialLink = generateShareableLink(position.coords.latitude, position.coords.longitude);
+            setShareableLink(initialLink);
 
-            const durationLabel = data.duration === 'custom' 
-              ? `${data.customDurationMinutes} minutes` 
+            const durationLabel = data.duration === 'custom'
+              ? `${data.customDurationMinutes} minutes`
               : shareDurations.find(d => d.value === data.duration)?.label;
             
-            const selectedGuardianNames = data.selectedGuardians
+            const selectedGuardianNames = (data.selectedGuardians || [])
                 .map(id => availableGuardians.find(g => g.id === id)?.name)
                 .filter(name => !!name)
                 .join(', ');
 
             toast({
               title: 'Location Sharing Started!',
-              description: `Your location is now being shared with ${selectedGuardianNames || 'the generated link'} for ${durationLabel}.`,
-              duration: 5000,
+              description: `Your location is now being shared ${selectedGuardianNames ? `with ${selectedGuardianNames} and ` : ''}via link for ${durationLabel}. The link points to Google Maps.`,
+              duration: 7000,
             });
-            console.log('Location sharing started:', data, 'Link:', generatedLink);
+            console.log('Location sharing started:', data, 'Link:', initialLink);
         },
         (error) => {
             let message = "Could not get your location to start sharing.";
@@ -196,17 +205,16 @@ export function LocationShareCard() {
             }
             toast({ variant: "destructive", title: "Location Error", description: message });
             setLocationError(message);
+            setIsSharing(false); // Ensure sharing state is false if initial location fails
         },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 } // Increased timeout
     );
   };
 
   const stopSharing = () => {
-    setIsSharing(false); 
-    setSharingDetails(null);
-    setShareableLink('');
-    setCurrentLocation(null); // Clear current location when stopping
-    setLocationError(null); // Clear any location errors
+    setIsSharing(false);
+    // setSharingDetails(null); // Keep details to show summary until form is resubmitted?
+    // setShareableLink(''); // Link will clear due to useEffect on isSharing
     toast({
       title: 'Location Sharing Stopped',
       description: 'You are no longer sharing your location.',
@@ -215,38 +223,47 @@ export function LocationShareCard() {
   };
 
   const handleCopyLink = async () => {
-    if (!shareableLink) return;
+    if (!shareableLink) {
+        toast({ title: 'No Link Available', description: 'Location link is not yet generated.', variant: 'destructive' });
+        return;
+    }
     try {
       await navigator.clipboard.writeText(shareableLink);
-      toast({ title: 'Link Copied!', description: 'Shareable link copied to clipboard.' });
+      toast({ title: 'Link Copied!', description: 'Google Maps link copied to clipboard.' });
     } catch (err) {
       toast({ title: 'Copy Failed', description: 'Could not copy the link.', variant: 'destructive' });
       console.error('Failed to copy link: ', err);
     }
   };
 
-  const getShareMessage = () => `I'm sharing my live location with you via SheSafe: ${shareableLink}`;
+  const getShareMessage = () => `I'm sharing my live location with you via SheSafe. View on Google Maps: ${shareableLink}`;
 
   const handleShareViaWhatsApp = () => {
-    if (!shareableLink) return;
+    if (!shareableLink) {
+        toast({ title: 'No Link Available', description: 'Wait for location link to generate.', variant: 'destructive' });
+        return;
+    }
     const message = getShareMessage();
     const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
   };
 
   const handleShareViaMessage = () => {
-    if (!shareableLink) return;
+    if (!shareableLink) {
+        toast({ title: 'No Link Available', description: 'Wait for location link to generate.', variant: 'destructive' });
+        return;
+    }
     const message = getShareMessage();
     const smsUrl = `sms:?body=${encodeURIComponent(message)}`;
     window.open(smsUrl, '_blank', 'noopener,noreferrer');
   };
 
   if (isSharing && sharingDetails) {
-    const durationLabel = sharingDetails.duration === 'custom' 
-      ? `${sharingDetails.customDurationMinutes} minutes` 
+    const durationLabel = sharingDetails.duration === 'custom'
+      ? `${sharingDetails.customDurationMinutes} minutes`
       : shareDurations.find(d => d.value === sharingDetails.duration)?.label;
     
-    const selectedGuardianNames = sharingDetails.selectedGuardians
+    const selectedGuardianNames = (sharingDetails.selectedGuardians || [])
         .map(id => availableGuardians.find(g => g.id === id)?.name)
         .filter(name => !!name)
         .join(', ');
@@ -255,13 +272,13 @@ export function LocationShareCard() {
       <Card className="w-full max-w-md mx-auto shadow-lg">
         <CardHeader>
           <CardTitle className="flex items-center text-primary"><LocateFixed className="mr-2 h-6 w-6 animate-pulse" /> Location Sharing Active</CardTitle>
-          <CardDescription>Your live location is currently being shared.</CardDescription>
+          <CardDescription>Your live location is currently being shared via a Google Maps link.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
             <Label className="text-sm font-medium">Shared with (Guardians):</Label>
             <p className="text-sm text-muted-foreground">
-              {selectedGuardianNames || "No specific guardians selected (link sharing only)"}
+              {selectedGuardianNames || "No specific guardians selected (sharing via link only)"}
             </p>
           </div>
           <div>
@@ -270,8 +287,8 @@ export function LocationShareCard() {
           </div>
 
           <div className="pt-2 border-t mt-2">
-            <Label className="text-sm font-medium">Current Location:</Label>
-            {locationError && (
+            <Label className="text-sm font-medium">Current Location (Updates in real-time):</Label>
+            {locationError && !currentLocation && ( // Show error only if no location yet
               <Alert variant="destructive" className="mt-1">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertTitle>Location Error</AlertTitle>
@@ -291,17 +308,25 @@ export function LocationShareCard() {
                 <p>Accuracy: {currentLocation.coords.accuracy.toFixed(0)} meters</p>
                 <p className="text-xs">Last update: {new Date(currentLocation.timestamp).toLocaleTimeString()}</p>
                 <Button variant="outline" size="sm" onClick={handleCopyLink} className="mt-2 w-full">
-                  <Copy className="mr-2 h-4 w-4" /> Copy Live Location Link
+                  <Copy className="mr-2 h-4 w-4" /> Copy Google Maps Link
                 </Button>
               </div>
+            )}
+             {/* Display location error even if there's a stale currentLocation, if a new error occurs */}
+            {locationError && currentLocation && (
+                 <Alert variant="destructive" className="mt-1">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Location Update Error</AlertTitle>
+                    <AlertDescription>{locationError} Displaying last known location.</AlertDescription>
+                </Alert>
             )}
           </div>
           
           <div className="space-y-2 pt-4 border-t mt-4">
-            <Label htmlFor="shareableLinkInput" className="text-sm font-medium">Share via Link:</Label>
+            <Label htmlFor="shareableLinkInput" className="text-sm font-medium">Share via Google Maps Link:</Label>
             <div className="flex items-center space-x-2">
-              <Input id="shareableLinkInput" type="text" value={shareableLink} readOnly className="flex-grow bg-muted" aria-label="Shareable location link"/>
-              <Button variant="outline" size="icon" onClick={handleCopyLink} title="Copy Link">
+              <Input id="shareableLinkInput" type="text" value={shareableLink || "Generating link..."} readOnly className="flex-grow bg-muted" aria-label="Shareable Google Maps location link"/>
+              <Button variant="outline" size="icon" onClick={handleCopyLink} title="Copy Link" disabled={!shareableLink}>
                 <Copy className="h-4 w-4" />
                 <span className="sr-only">Copy link</span>
               </Button>
@@ -309,11 +334,11 @@ export function LocationShareCard() {
           </div>
 
           <div className="grid grid-cols-2 gap-2 pt-2">
-            <Button variant="outline" className="w-full" onClick={handleShareViaWhatsApp}>
+            <Button variant="outline" className="w-full" onClick={handleShareViaWhatsApp} disabled={!shareableLink}>
               <Share2 className="h-4 w-4 mr-2" />
               WhatsApp
             </Button>
-            <Button variant="outline" className="w-full" onClick={handleShareViaMessage}>
+            <Button variant="outline" className="w-full" onClick={handleShareViaMessage} disabled={!shareableLink}>
               <MessageSquare className="h-4 w-4 mr-2" />
               Message
             </Button>
@@ -333,7 +358,7 @@ export function LocationShareCard() {
       <form onSubmit={handleSubmit(onSubmit)}>
         <CardHeader>
           <CardTitle className="flex items-center"><MapPin className="mr-2 h-6 w-6" /> Share Your Location</CardTitle>
-          <CardDescription>Choose trusted contacts and how long to share your live location. You can also share via a link after starting.</CardDescription>
+          <CardDescription>Choose trusted contacts and how long to share your live location via a Google Maps link.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {availableGuardians.length === 0 ? (
@@ -341,8 +366,7 @@ export function LocationShareCard() {
               <Users className="h-4 w-4" />
               <AlertTitle>No Available Contacts</AlertTitle>
               <AlertDescription>
-                Please add emergency contacts on the Dashboard or in Settings to enable location sharing with specific guardians.
-                You can still share your location via a generated link without selecting specific contacts.
+                You can add emergency contacts on the Dashboard or in Settings. You can still share your location via a generated link without selecting specific contacts.
               </AlertDescription>
             </Alert>
           ) : (
@@ -383,9 +407,7 @@ export function LocationShareCard() {
                   />
                 ))}
               </div>
-              {/* Making selectedGuardians optional by removing this error message or adjusting validation logic
-              {errors.selectedGuardians && <p className="text-sm text-destructive pt-1">{errors.selectedGuardians.message}</p>}
-              */}
+               {/* Selected guardians is optional, so no specific error message needed here if none selected. */}
             </div>
           )}
 
@@ -395,14 +417,14 @@ export function LocationShareCard() {
               name="duration"
               control={control}
               render={({ field }) => (
-                <Select 
+                <Select
                   onValueChange={(value) => {
                     field.onChange(value);
                     if (value !== 'custom') {
                       setValue('customDurationMinutes', undefined, { shouldValidate: true });
                     }
                   }}
-                  defaultValue={field.value} 
+                  defaultValue={field.value}
                 >
                   <SelectTrigger id="duration" aria-invalid={!!errors.duration}>
                     <SelectValue placeholder="Select duration" />
@@ -427,11 +449,11 @@ export function LocationShareCard() {
                 name="customDurationMinutes"
                 control={control}
                 render={({ field }) => (
-                  <Input 
-                    id="customDurationMinutes" 
-                    type="number" 
-                    placeholder="e.g., 45" 
-                    {...field} 
+                  <Input
+                    id="customDurationMinutes"
+                    type="number"
+                    placeholder="e.g., 45"
+                    {...field}
                     value={field.value === undefined ? '' : String(field.value)}
                     onChange={e => {
                         const valStr = e.target.value;
@@ -449,12 +471,19 @@ export function LocationShareCard() {
               {errors.customDurationMinutes && <p className="text-sm text-destructive pt-1">{errors.customDurationMinutes.message}</p>}
             </div>
           )}
+          {locationError && (
+             <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Location Permission Issue</AlertTitle>
+                <AlertDescription>{locationError} Please grant location access to start sharing.</AlertDescription>
+            </Alert>
+          )}
         </CardContent>
         <CardFooter>
-          <Button 
-            type="submit" 
-            className="w-full bg-primary hover:bg-primary/90" 
-            disabled={Object.keys(errors).length > 0 && !(errors.selectedGuardians && availableGuardians.length > 0) /* Allow submission if only selectedGuardians error and it's optional */}
+          <Button
+            type="submit"
+            className="w-full bg-primary hover:bg-primary/90"
+            disabled={Object.keys(errors).length > 0 || !!locationError} // Disable if form errors or persistent location error
           >
             <Play className="mr-2 h-5 w-5" /> Start Sharing Location
           </Button>
@@ -463,3 +492,4 @@ export function LocationShareCard() {
     </Card>
   );
 }
+
