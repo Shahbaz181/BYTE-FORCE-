@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -18,7 +18,6 @@ import Image from 'next/image';
 const guardianAngelSchema = z.object({
   placeName: z.string().min(3, "Place name must be at least 3 characters.").max(100, "Place name cannot exceed 100 characters."),
   movementData: z.string().min(3, "Describe movement briefly, e.g., 'walking fast', 'stationary'.").max(100),
-  // audioDataUri is handled separately
 });
 
 type GuardianAngelFormData = z.infer<typeof guardianAngelSchema>;
@@ -31,6 +30,7 @@ export function GuardianAngelPanel() {
   const [audioDataUri, setAudioDataUri] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const { toast } = useToast();
   const { control, handleSubmit, formState: { errors }, reset } = useForm<GuardianAngelFormData>({
@@ -40,6 +40,30 @@ export function GuardianAngelPanel() {
       movementData: '',
     }
   });
+
+  const stopRecordingAndStream = useCallback(() => {
+    if (recordingTimeoutRef.current) {
+      clearTimeout(recordingTimeoutRef.current);
+      recordingTimeoutRef.current = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      mediaRecorderRef.current.stop(); // This will trigger 'onstop'
+    }
+    // If 'onstop' doesn't fire or stream needs cleanup regardless (e.g. on unmount/deactivate)
+    if (audioStream) {
+      audioStream.getTracks().forEach(track => track.stop());
+      setAudioStream(null);
+    }
+  }, [audioStream]);
+
+
+  useEffect(() => {
+    // Cleanup: stop recording and stream when component unmounts or audioStream changes
+    return () => {
+      stopRecordingAndStream();
+    };
+  }, [stopRecordingAndStream]);
+
 
   const startRecording = async () => {
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -54,17 +78,30 @@ export function GuardianAngelPanel() {
         };
 
         mediaRecorderRef.current.onstop = () => {
-          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' }); // Adjust MIME type if needed
+          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
           const reader = new FileReader();
           reader.readAsDataURL(audioBlob);
           reader.onloadend = () => {
             setAudioDataUri(reader.result as string);
             toast({ title: "Audio Recorded", description: "Audio captured for analysis.", duration: 2000 });
           };
+          // Ensure stream is fully stopped and UI updated
+          if (stream) { // Use the 'stream' variable from the closure which is the current MediaStream
+            stream.getTracks().forEach(track => track.stop());
+          }
+          setAudioStream(null); // Update UI to reflect recording has stopped
+          if (recordingTimeoutRef.current) { // Clear timeout if onstop is called
+            clearTimeout(recordingTimeoutRef.current);
+            recordingTimeoutRef.current = null;
+          }
         };
         mediaRecorderRef.current.start();
         toast({ title: "Recording Started", description: "Capturing audio for 5 seconds.", duration: 2000 });
-        setTimeout(() => { // Simulate short recording for analysis
+        
+        if (recordingTimeoutRef.current) {
+          clearTimeout(recordingTimeoutRef.current);
+        }
+        recordingTimeoutRef.current = setTimeout(() => {
            if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
                 mediaRecorderRef.current.stop();
            }
@@ -73,29 +110,24 @@ export function GuardianAngelPanel() {
       } catch (err) {
         console.error("Error accessing microphone:", err);
         toast({ title: "Microphone Error", description: "Could not access microphone. Please check permissions.", variant: "destructive" });
+        setAudioStream(null);
       }
     } else {
       toast({ title: "Unsupported", description: "Audio recording is not supported by your browser.", variant: "destructive" });
     }
   };
 
-  const stopRecordingAndStream = () => {
+  const handleStopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stop(); // This will trigger the 'onstop' event handler
+      toast({ title: "Recording Stopped", description: "Audio capture processing...", duration: 2000 });
     }
-    if (audioStream) {
-      audioStream.getTracks().forEach(track => track.stop());
-      setAudioStream(null);
+    if (recordingTimeoutRef.current) {
+      clearTimeout(recordingTimeoutRef.current);
+      recordingTimeoutRef.current = null;
     }
+    // `onstop` handler will manage setting audioDataUri and setting audioStream to null
   };
-  
-  useEffect(() => {
-    // Cleanup: stop recording and stream when component unmounts or mode deactivates
-    return () => {
-      stopRecordingAndStream();
-    };
-  }, [audioStream]);
-
 
   const onSubmit = async (data: GuardianAngelFormData) => {
     if (!audioDataUri) {
@@ -119,9 +151,11 @@ export function GuardianAngelPanel() {
       } else {
         toast({ title: "Analysis Complete", description: "No immediate distress signals detected.", duration: 5000 });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error analyzing context:", error);
-      toast({ title: "Analysis Error", description: "Could not complete analysis.", variant: "destructive" });
+      const errorMessage = error.message ? error.message : "Could not complete analysis.";
+      toast({ title: "Analysis Error", description: errorMessage, variant: "destructive" });
+      setAnalysisResult({isDistressed: false, reason: `Analysis failed: ${errorMessage}`});
     } finally {
       setIsLoading(false);
     }
@@ -129,9 +163,9 @@ export function GuardianAngelPanel() {
 
   const activateMode = () => {
     setIsModeActive(true);
-    setAnalysisResult(null); // Clear previous results
-    setAudioDataUri(null); // Clear previous audio
-    reset(); // Reset form fields
+    setAnalysisResult(null); 
+    setAudioDataUri(null); 
+    reset(); 
     toast({
       title: 'Guardian Angel Mode Activated',
       description: 'Please provide your current context for monitoring.',
@@ -202,13 +236,24 @@ export function GuardianAngelPanel() {
             />
             {errors.movementData && <p className="text-sm text-destructive">{errors.movementData.message}</p>}
           </div>
+          
           <div className="space-y-2">
-            <Label className="flex items-center"><Mic className="mr-2 h-5 w-5" /> Record Audio (5s)</Label>
-            <Button type="button" variant="outline" onClick={startRecording} disabled={!!audioStream || isLoading} className="w-full">
-                {audioStream ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mic className="mr-2 h-4 w-4" />}
-                {audioStream ? 'Recording...' : (audioDataUri ? 'Re-record Audio' : 'Start Recording')}
-            </Button>
-            {audioDataUri && <p className="text-xs text-green-600 text-center">Audio captured successfully.</p>}
+            <Label className="flex items-center"><Mic className="mr-2 h-5 w-5" /> Record Audio (Max 5s)</Label>
+            <div className="flex space-x-2">
+              {!audioStream ? (
+                <Button type="button" variant="outline" onClick={startRecording} disabled={isLoading} className="flex-grow">
+                  <Mic className="mr-2 h-4 w-4" />
+                  {audioDataUri ? 'Re-record Audio' : 'Start Recording'}
+                </Button>
+              ) : (
+                <Button type="button" variant="destructive" onClick={handleStopRecording} disabled={isLoading} className="flex-grow">
+                  <StopCircle className="mr-2 h-4 w-4" />
+                  Stop Recording
+                </Button>
+              )}
+            </div>
+            {audioStream && <p className="text-xs text-center text-primary animate-pulse">Recording in progress...</p>}
+            {audioDataUri && !audioStream && <p className="text-xs text-green-600 text-center">Audio captured successfully.</p>}
           </div>
 
            {isLoading && (
