@@ -68,7 +68,7 @@ Inspired by UN Sustainable Development Goal 5 – Gender Equality.
 - **Mobile-Responsive Layout**
 
   
-##Acknowledgments
+## Acknowledgments
 
 Inspired by SDG 5 – Gender Equality
 
