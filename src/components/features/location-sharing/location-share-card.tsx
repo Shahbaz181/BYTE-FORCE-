@@ -1,3 +1,4 @@
+
 // src/components/features/location-sharing/location-share-card.tsx
 "use client";
 
@@ -30,7 +31,7 @@ const locationShareSchema = z.object({
   selectedGuardians: z.array(z.string()).min(1, "Select at least one guardian."),
   duration: z.string().min(1, "Select a duration."),
   customDurationMinutes: z.preprocess(
-    (val) => (val === "" ? undefined : Number(val)),
+    (val) => (String(val).trim() === "" ? undefined : Number(val)),
     z.number().positive("Custom duration must be positive.").optional()
   ),
 }).refine(data => {
@@ -72,6 +73,7 @@ export function LocationShareCard() {
     defaultValues: {
       selectedGuardians: [],
       duration: '30',
+      customDurationMinutes: '',
     },
   });
 
@@ -181,7 +183,7 @@ export function LocationShareCard() {
                          </Label>
                         <Switch
                           id={`guardian-${guardian.id}`}
-                          checked={field.value.includes(guardian.id)}
+                          checked={(field.value || []).includes(guardian.id)}
                           onCheckedChange={(checked) => {
                             const currentSelection = field.value || [];
                             if (checked) {
@@ -233,7 +235,7 @@ export function LocationShareCard() {
               <Controller
                 name="customDurationMinutes"
                 control={control}
-                render={({ field }) => <Input id="customDurationMinutes" type="number" placeholder="e.g., 45" {...field} value={field.value ?? ''} disabled={availableGuardians.length === 0} />}
+                render={({ field }) => <Input id="customDurationMinutes" type="number" placeholder="e.g., 45" {...field} value={field.value ?? ''} onChange={e => field.onChange(e.target.value === '' ? '' : parseInt(e.target.value, 10))} disabled={availableGuardians.length === 0} />}
               />
               {errors.customDurationMinutes && <p className="text-sm text-destructive">{errors.customDurationMinutes.message}</p>}
             </div>
@@ -248,3 +250,4 @@ export function LocationShareCard() {
     </Card>
   );
 }
+

@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from 'react';
@@ -13,14 +14,15 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { getDangerZoneAlerts, type DangerZoneAlertsInput, type DangerZoneAlertsOutput } from '@/ai/flows/danger-zone-alerts';
 import { MapPin, AlertTriangle, Search, Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils'; // Imported cn
 
 const dangerAlertsSchema = z.object({
   latitude: z.preprocess(
-    val => parseFloat(String(val)),
+    val => (String(val).trim() === '' ? undefined : parseFloat(String(val))), // Handle empty string for optional parsing
     z.number().min(-90, "Invalid latitude").max(90, "Invalid latitude")
   ),
   longitude: z.preprocess(
-    val => parseFloat(String(val)),
+    val => (String(val).trim() === '' ? undefined : parseFloat(String(val))), // Handle empty string for optional parsing
     z.number().min(-180, "Invalid longitude").max(180, "Invalid longitude")
   ),
 });
@@ -35,8 +37,8 @@ export function DangerAlertsDisplay() {
   const { control, handleSubmit, formState: { errors } } = useForm<DangerAlertsFormData>({
     resolver: zodResolver(dangerAlertsSchema),
     defaultValues: {
-      latitude: undefined, // Using undefined for placeholder to show
-      longitude: undefined,
+      latitude: '', 
+      longitude: '',
     },
   });
 
@@ -85,7 +87,7 @@ export function DangerAlertsDisplay() {
               <Controller
                 name="latitude"
                 control={control}
-                render={({ field }) => <Input id="latitude" type="number" step="any" placeholder="e.g., 34.0522" {...field} />}
+                render={({ field }) => <Input id="latitude" type="number" step="any" placeholder="e.g., 34.0522" {...field} onChange={e => field.onChange(e.target.value === '' ? '' : parseFloat(e.target.value))} />}
               />
               {errors.latitude && <p className="text-sm text-destructive">{errors.latitude.message}</p>}
             </div>
@@ -94,7 +96,7 @@ export function DangerAlertsDisplay() {
               <Controller
                 name="longitude"
                 control={control}
-                render={({ field }) => <Input id="longitude" type="number" step="any" placeholder="e.g., -118.2437" {...field} />}
+                render={({ field }) => <Input id="longitude" type="number" step="any" placeholder="e.g., -118.2437" {...field} onChange={e => field.onChange(e.target.value === '' ? '' : parseFloat(e.target.value))} />}
               />
               {errors.longitude && <p className="text-sm text-destructive">{errors.longitude.message}</p>}
             </div>
@@ -173,3 +175,4 @@ const ShieldCheck = ({className}: {className?: string}) => (
     <path d="m9 12 2 2 4-4"></path>
   </svg>
 );
+

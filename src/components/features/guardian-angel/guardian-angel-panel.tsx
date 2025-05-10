@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
@@ -16,11 +17,11 @@ import Image from 'next/image';
 
 const guardianAngelSchema = z.object({
   latitude: z.preprocess(
-    val => parseFloat(String(val)),
+    val => (String(val).trim() === '' ? undefined : parseFloat(String(val))),
     z.number().min(-90, "Invalid latitude").max(90, "Invalid latitude")
   ),
   longitude: z.preprocess(
-    val => parseFloat(String(val)),
+    val => (String(val).trim() === '' ? undefined : parseFloat(String(val))),
     z.number().min(-180, "Invalid longitude").max(180, "Invalid longitude")
   ),
   movementData: z.string().min(3, "Describe movement briefly, e.g., 'walking fast', 'stationary'.").max(100),
@@ -41,6 +42,11 @@ export function GuardianAngelPanel() {
   const { toast } = useToast();
   const { control, handleSubmit, formState: { errors }, reset } = useForm<GuardianAngelFormData>({
     resolver: zodResolver(guardianAngelSchema),
+    defaultValues: {
+      latitude: '',
+      longitude: '',
+      movementData: '',
+    }
   });
 
   const startRecording = async () => {
@@ -190,7 +196,7 @@ export function GuardianAngelPanel() {
             <Controller
               name="latitude"
               control={control}
-              render={({ field }) => <Input id="latitude" type="number" step="any" placeholder="e.g., 34.0522" {...field} />}
+              render={({ field }) => <Input id="latitude" type="number" step="any" placeholder="e.g., 34.0522" {...field} onChange={e => field.onChange(e.target.value === '' ? '' : parseFloat(e.target.value))}/>}
             />
             {errors.latitude && <p className="text-sm text-destructive">{errors.latitude.message}</p>}
           </div>
@@ -199,7 +205,7 @@ export function GuardianAngelPanel() {
             <Controller
               name="longitude"
               control={control}
-              render={({ field }) => <Input id="longitude" type="number" step="any" placeholder="e.g., -118.2437" {...field} />}
+              render={({ field }) => <Input id="longitude" type="number" step="any" placeholder="e.g., -118.2437" {...field} onChange={e => field.onChange(e.target.value === '' ? '' : parseFloat(e.target.value))}/>}
             />
             {errors.longitude && <p className="text-sm text-destructive">{errors.longitude.message}</p>}
           </div>
@@ -252,3 +258,4 @@ export function GuardianAngelPanel() {
     </Card>
   );
 }
+
