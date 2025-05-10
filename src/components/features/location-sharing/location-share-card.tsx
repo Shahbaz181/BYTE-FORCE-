@@ -1,7 +1,7 @@
 // src/components/features/location-sharing/location-share-card.tsx
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
-import { MapPin, Clock, Users, Play, StopCircle, AlertTriangle, Copy, MessageSquare, Share2 } from 'lucide-react';
+import { MapPin, Clock, Users, Play, StopCircle, AlertTriangle, Copy, MessageSquare, Share2, LocateFixed, Loader2 } from 'lucide-react';
 import type { Guardian } from '@/types/guardian';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
@@ -45,12 +45,26 @@ const locationShareSchema = z.object({
 
 type LocationShareFormData = z.infer<typeof locationShareSchema>;
 
+interface GeoLocationPosition {
+  coords: {
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+  };
+  timestamp: number;
+}
+
 export function LocationShareCard() {
   const [isSharing, setIsSharing] = useState(false);
   const [sharingDetails, setSharingDetails] = useState<LocationShareFormData | null>(null);
   const [availableGuardians, setAvailableGuardians] = useState<Guardian[]>([]);
   const [shareableLink, setShareableLink] = useState<string>('');
   const { toast } = useToast();
+
+  const [currentLocation, setCurrentLocation] = useState<GeoLocationPosition | null>(null);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const watchIdRef = useRef<number | null>(null);
+
 
   useEffect(() => {
     const storedGuardiansRaw = localStorage.getItem(GUARDIANS_STORAGE_KEY);
@@ -63,14 +77,71 @@ export function LocationShareCard() {
         setAvailableGuardians([]);
       }
     }
+  }, [isSharing]); // Reload guardians if sharing status changes, e.g. to update list if contacts were added
+
+  const startRealTimeLocationSharing = () => {
+    if (!navigator.geolocation) {
+      setLocationError("Geolocation is not supported by your browser.");
+      toast({ variant: "destructive", title: "Geolocation Error", description: "Geolocation is not supported." });
+      return;
+    }
+
+    setLocationError(null);
+    setCurrentLocation(null); // Reset location while fetching new one
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (position) => {
+        setCurrentLocation(position as GeoLocationPosition); // Cast to include accuracy
+        setLocationError(null);
+      },
+      (error) => {
+        let message = "Could not get your location.";
+        if (error.code === error.PERMISSION_DENIED) {
+          message = "Location access denied. Please enable it in your browser settings.";
+        } else if (error.code === error.POSITION_UNAVAILABLE) {
+          message = "Location information is unavailable.";
+        } else if (error.code === error.TIMEOUT) {
+          message = "The request to get user location timed out.";
+        }
+        setLocationError(message);
+        setCurrentLocation(null);
+        toast({ variant: "destructive", title: "Location Error", description: message });
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000, // 10 seconds
+        maximumAge: 0, // Force fresh location
+      }
+    );
+  };
+
+  const stopRealTimeLocationSharing = () => {
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    setCurrentLocation(null);
+    // Do not clear locationError here, it might be a persistent issue like "not supported"
+  };
+
+  useEffect(() => {
+    if (isSharing) {
+      startRealTimeLocationSharing();
+    } else {
+      stopRealTimeLocationSharing();
+    }
+    return () => { // Cleanup on component unmount
+      stopRealTimeLocationSharing();
+    };
   }, [isSharing]);
+
 
   const { control, handleSubmit, watch, formState: { errors }, setValue } = useForm<LocationShareFormData>({
     resolver: zodResolver(locationShareSchema),
     defaultValues: {
       selectedGuardians: [],
       duration: '30',
-      customDurationMinutes: '',
+      customDurationMinutes: undefined, // Ensure it's undefined initially
     },
   });
 
@@ -82,7 +153,7 @@ export function LocationShareCard() {
   };
 
   const onSubmit = (data: LocationShareFormData) => {
-    setIsSharing(true);
+    setIsSharing(true); // This will trigger the useEffect to start location sharing
     setSharingDetails(data);
     const generatedLink = generateShareableLink();
     setShareableLink(generatedLink);
@@ -105,7 +176,7 @@ export function LocationShareCard() {
   };
 
   const stopSharing = () => {
-    setIsSharing(false);
+    setIsSharing(false); // This will trigger the useEffect to stop location sharing
     setSharingDetails(null);
     setShareableLink('');
     toast({
@@ -138,7 +209,6 @@ export function LocationShareCard() {
   const handleShareViaMessage = () => {
     if (!shareableLink) return;
     const message = getShareMessage();
-    // The sms: protocol behavior can vary. For body, some systems use ?&body=
     const smsUrl = `sms:?body=${encodeURIComponent(message)}`;
     window.open(smsUrl, '_blank', 'noopener,noreferrer');
   };
@@ -156,8 +226,8 @@ export function LocationShareCard() {
     return (
       <Card className="w-full max-w-md mx-auto shadow-lg">
         <CardHeader>
-          <CardTitle className="flex items-center text-primary"><MapPin className="mr-2 h-6 w-6" /> Location Sharing Active</CardTitle>
-          <CardDescription>Your location is currently being shared.</CardDescription>
+          <CardTitle className="flex items-center text-primary"><LocateFixed className="mr-2 h-6 w-6 animate-pulse" /> Location Sharing Active</CardTitle>
+          <CardDescription>Your live location is currently being shared.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
@@ -169,6 +239,31 @@ export function LocationShareCard() {
           <div>
             <Label className="text-sm font-medium">Duration:</Label>
             <p className="text-sm text-muted-foreground">{durationLabel}</p>
+          </div>
+
+          <div className="pt-2 border-t mt-2">
+            <Label className="text-sm font-medium">Current Location:</Label>
+            {locationError && (
+              <Alert variant="destructive" className="mt-1">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Location Error</AlertTitle>
+                <AlertDescription>{locationError}</AlertDescription>
+              </Alert>
+            )}
+            {!currentLocation && !locationError && (
+              <div className="flex items-center text-sm text-muted-foreground mt-1">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Fetching location...
+              </div>
+            )}
+            {currentLocation && (
+              <div className="text-sm text-muted-foreground mt-1 space-y-1">
+                <p>Latitude: {currentLocation.coords.latitude.toFixed(6)}</p>
+                <p>Longitude: {currentLocation.coords.longitude.toFixed(6)}</p>
+                <p>Accuracy: {currentLocation.coords.accuracy.toFixed(0)} meters</p>
+                <p className="text-xs">Last update: {new Date(currentLocation.timestamp).toLocaleTimeString()}</p>
+              </div>
+            )}
           </div>
           
           <div className="space-y-2 pt-4 border-t mt-4">
@@ -184,7 +279,7 @@ export function LocationShareCard() {
 
           <div className="grid grid-cols-2 gap-2 pt-2">
             <Button variant="outline" className="w-full" onClick={handleShareViaWhatsApp}>
-              <Share2 className="h-4 w-4 mr-2" /> {/* Using Share2 as a generic share icon, can be styled for WhatsApp */}
+              <Share2 className="h-4 w-4 mr-2" />
               WhatsApp
             </Button>
             <Button variant="outline" className="w-full" onClick={handleShareViaMessage}>
@@ -192,8 +287,6 @@ export function LocationShareCard() {
               Message
             </Button>
           </div>
-
-          <p className="text-xs text-center text-muted-foreground pt-2">GPS accuracy: Street-level detail (Simulated)</p>
         </CardContent>
         <CardFooter>
           <Button variant="destructive" className="w-full" onClick={stopSharing}>
@@ -224,7 +317,7 @@ export function LocationShareCard() {
           ) : (
             <div className="space-y-2">
               <Label htmlFor="guardians" className="flex items-center"><Users className="mr-2 h-5 w-5" /> Select Guardians (up to 5)</Label>
-              <div className="space-y-2 max-h-48 overflow-y-auto pr-2"> {/* Added scroll for many guardians */}
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
                 {availableGuardians.map((guardian) => (
                   <Controller
                     key={guardian.id}
@@ -269,7 +362,11 @@ export function LocationShareCard() {
               name="duration"
               control={control}
               render={({ field }) => (
-                <Select onValueChange={field.onChange} defaultValue={field.value} disabled={availableGuardians.length === 0 && errors.selectedGuardians !== undefined /* disable if no guardians OR if guardians are required but not selected */}>
+                <Select 
+                  onValueChange={field.onChange} 
+                  defaultValue={field.value} 
+                  disabled={availableGuardians.length === 0 || !!errors.selectedGuardians}
+                >
                   <SelectTrigger id="duration">
                     <SelectValue placeholder="Select duration" />
                   </SelectTrigger>
@@ -292,14 +389,27 @@ export function LocationShareCard() {
               <Controller
                 name="customDurationMinutes"
                 control={control}
-                render={({ field }) => <Input id="customDurationMinutes" type="number" placeholder="e.g., 45" {...field} value={field.value ?? ''} onChange={e => field.onChange(e.target.value === '' ? '' : parseInt(e.target.value, 10))} disabled={availableGuardians.length === 0 && errors.selectedGuardians !== undefined} />}
+                render={({ field }) => (
+                  <Input 
+                    id="customDurationMinutes" 
+                    type="number" 
+                    placeholder="e.g., 45" 
+                    {...field} 
+                    value={field.value === undefined ? '' : field.value} // Handle undefined for empty input
+                    onChange={e => {
+                        const value = e.target.value;
+                        field.onChange(value === '' ? undefined : parseInt(value, 10));
+                    }}
+                    disabled={availableGuardians.length === 0 || !!errors.selectedGuardians} 
+                  />
+                )}
               />
               {errors.customDurationMinutes && <p className="text-sm text-destructive">{errors.customDurationMinutes.message}</p>}
             </div>
           )}
         </CardContent>
         <CardFooter>
-          <Button type="submit" className="w-full bg-primary hover:bg-primary/90" disabled={availableGuardians.length === 0 && errors.selectedGuardians !== undefined}>
+          <Button type="submit" className="w-full bg-primary hover:bg-primary/90" disabled={availableGuardians.length === 0 || !!errors.selectedGuardians}>
             <Play className="mr-2 h-5 w-5" /> Start Sharing Location
           </Button>
         </CardFooter>
