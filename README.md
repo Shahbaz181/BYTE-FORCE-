@@ -5,15 +5,20 @@
 📲 Click to open https://studio--shesafe-cvaif.us-central1.hosted.app/
 
 ## Overview
-**SheSafe** is a personal safety web app designed to help women feel safe and stay connected at all times. Built to support Sustainable Development Goal 5 (Gender Equality), SheSafe offers real-time location sharing, SOS alerts, and trusted contact features — all in a simple, mobile-responsive design.
+**SheSafe** is a personal safety app designed to help women feel safe and stay connected at all times. Built to support Sustainable Development Goal 5 (Gender Equality), SheSafe offers real-time location sharing, SOS alerts, and trusted contact features — all in a simple, mobile-responsive design.
 
 ## Key Features
 
 - **Real-Time Location Sharing** – Share your live location with trusted contacts using Google Maps API.
+  
 - **SOS Alert System** – One-tap emergency alerts with automatic location sharing.
+  
 - **Trusted Contacts List** – Add and manage personal emergency contacts securely.
+  
 - **SOS History Log** – View and track past emergency alerts.
+  
 - **Secure Login & Dashboard** – Firebase-authenticated login with a personal user dashboard.
+  
 - **Mobile Responsive Design** – Smooth experience across all devices, optimized for WebView and PWA.
 
 ## How to Use
@@ -24,10 +29,10 @@
 
 2. Open index.html in a browser or host it online.
 
-
 3. Use WebView or tools like Capacitor to convert into a mobile app (optional)
 
 ## Target Users
+
 Women traveling alone
 Students commuting daily
 Solo travelers and working professionals
@@ -40,8 +45,7 @@ This project is licensed under the MIT License – free to use, modify, and shar
 Acknowledgments
 
 Inspired by UN Sustainable Development Goal 5 – Gender Equality.
-
-> “Safety is not a privilege — it’s a right.”
+> “Safety is not a privilege — it’s a right.”<
 
 ## Technology Used
 
@@ -54,4 +58,4 @@ Inspired by UN Sustainable Development Goal 5 – Gender Equality.
 
 Inspired by SDG 5 – Gender Equality
 
-> “Safety and freedom should never be optional.”
+> “Safety and freedom should never be optional.”<
