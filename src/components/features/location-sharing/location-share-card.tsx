@@ -1,4 +1,3 @@
-
 // src/components/features/location-sharing/location-share-card.tsx
 "use client";
 
@@ -13,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
-import { MapPin, Clock, Users, Play, StopCircle, AlertTriangle } from 'lucide-react';
+import { MapPin, Clock, Users, Play, StopCircle, AlertTriangle, Copy, MessageSquare, Share2 } from 'lucide-react';
 import type { Guardian } from '@/types/guardian';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
@@ -50,6 +49,7 @@ export function LocationShareCard() {
   const [isSharing, setIsSharing] = useState(false);
   const [sharingDetails, setSharingDetails] = useState<LocationShareFormData | null>(null);
   const [availableGuardians, setAvailableGuardians] = useState<Guardian[]>([]);
+  const [shareableLink, setShareableLink] = useState<string>('');
   const { toast } = useToast();
 
   useEffect(() => {
@@ -57,16 +57,13 @@ export function LocationShareCard() {
     if (storedGuardiansRaw) {
       try {
         const parsedGuardians: Guardian[] = JSON.parse(storedGuardiansRaw);
-        // Filter for guardians who have accepted consent, or are pending, or not sent (i.e., not declined)
-        // For location sharing, perhaps we only want 'Accepted' ones in a real scenario.
-        // For this simulation, we'll allow all non-declined.
         setAvailableGuardians(parsedGuardians.filter(g => g.consentStatus !== 'Declined'));
       } catch (e) {
         console.error("Failed to parse guardians from localStorage", e);
         setAvailableGuardians([]);
       }
     }
-  }, [isSharing]); // Re-fetch if sharing status changes, e.g., to update list if modified elsewhere.
+  }, [isSharing]);
 
   const { control, handleSubmit, watch, formState: { errors }, setValue } = useForm<LocationShareFormData>({
     resolver: zodResolver(locationShareSchema),
@@ -79,9 +76,17 @@ export function LocationShareCard() {
 
   const selectedDuration = watch('duration');
 
+  const generateShareableLink = (): string => {
+    // In a real app, this would be a unique session ID from the backend
+    return `https://shesafe.app/live-location?session=${Date.now().toString(36)}`;
+  };
+
   const onSubmit = (data: LocationShareFormData) => {
     setIsSharing(true);
     setSharingDetails(data);
+    const generatedLink = generateShareableLink();
+    setShareableLink(generatedLink);
+
     const durationLabel = data.duration === 'custom' 
       ? `${data.customDurationMinutes} minutes` 
       : shareDurations.find(d => d.value === data.duration)?.label;
@@ -93,20 +98,49 @@ export function LocationShareCard() {
 
     toast({
       title: 'Location Sharing Started!',
-      description: `Your location is now being shared with ${selectedGuardianNames} for ${durationLabel}.`,
+      description: `Your location is now being shared with ${selectedGuardianNames} for ${durationLabel}. You can also share a link.`,
       duration: 5000,
     });
-    console.log('Location sharing started:', data);
+    console.log('Location sharing started:', data, 'Link:', generatedLink);
   };
 
   const stopSharing = () => {
     setIsSharing(false);
     setSharingDetails(null);
+    setShareableLink('');
     toast({
       title: 'Location Sharing Stopped',
       description: 'You are no longer sharing your location.',
       duration: 3000,
     });
+  };
+
+  const handleCopyLink = async () => {
+    if (!shareableLink) return;
+    try {
+      await navigator.clipboard.writeText(shareableLink);
+      toast({ title: 'Link Copied!', description: 'Shareable link copied to clipboard.' });
+    } catch (err) {
+      toast({ title: 'Copy Failed', description: 'Could not copy the link.', variant: 'destructive' });
+      console.error('Failed to copy link: ', err);
+    }
+  };
+
+  const getShareMessage = () => `I'm sharing my live location with you via SheSafe: ${shareableLink}`;
+
+  const handleShareViaWhatsApp = () => {
+    if (!shareableLink) return;
+    const message = getShareMessage();
+    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleShareViaMessage = () => {
+    if (!shareableLink) return;
+    const message = getShareMessage();
+    // The sms: protocol behavior can vary. For body, some systems use ?&body=
+    const smsUrl = `sms:?body=${encodeURIComponent(message)}`;
+    window.open(smsUrl, '_blank', 'noopener,noreferrer');
   };
 
   if (isSharing && sharingDetails) {
@@ -127,15 +161,38 @@ export function LocationShareCard() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <Label className="text-sm font-medium">Shared with:</Label>
+            <Label className="text-sm font-medium">Shared with (Guardians):</Label>
             <p className="text-sm text-muted-foreground">
-              {selectedGuardianNames}
+              {selectedGuardianNames || "No specific guardians selected"}
             </p>
           </div>
           <div>
             <Label className="text-sm font-medium">Duration:</Label>
             <p className="text-sm text-muted-foreground">{durationLabel}</p>
           </div>
+          
+          <div className="space-y-2 pt-4 border-t mt-4">
+            <Label htmlFor="shareableLink" className="text-sm font-medium">Share via Link:</Label>
+            <div className="flex items-center space-x-2">
+              <Input id="shareableLink" type="text" value={shareableLink} readOnly className="flex-grow bg-muted" aria-label="Shareable location link"/>
+              <Button variant="outline" size="icon" onClick={handleCopyLink} title="Copy Link">
+                <Copy className="h-4 w-4" />
+                <span className="sr-only">Copy link</span>
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 pt-2">
+            <Button variant="outline" className="w-full" onClick={handleShareViaWhatsApp}>
+              <Share2 className="h-4 w-4 mr-2" /> {/* Using Share2 as a generic share icon, can be styled for WhatsApp */}
+              WhatsApp
+            </Button>
+            <Button variant="outline" className="w-full" onClick={handleShareViaMessage}>
+              <MessageSquare className="h-4 w-4 mr-2" />
+              Message
+            </Button>
+          </div>
+
           <p className="text-xs text-center text-muted-foreground pt-2">GPS accuracy: Street-level detail (Simulated)</p>
         </CardContent>
         <CardFooter>
@@ -152,7 +209,7 @@ export function LocationShareCard() {
       <form onSubmit={handleSubmit(onSubmit)}>
         <CardHeader>
           <CardTitle className="flex items-center"><MapPin className="mr-2 h-6 w-6" /> Share Your Location</CardTitle>
-          <CardDescription>Choose trusted contacts and how long to share your live location.</CardDescription>
+          <CardDescription>Choose trusted contacts and how long to share your live location. You can also share via a link after starting.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {availableGuardians.length === 0 ? (
@@ -167,7 +224,7 @@ export function LocationShareCard() {
           ) : (
             <div className="space-y-2">
               <Label htmlFor="guardians" className="flex items-center"><Users className="mr-2 h-5 w-5" /> Select Guardians (up to 5)</Label>
-              <div className="space-y-2">
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-2"> {/* Added scroll for many guardians */}
                 {availableGuardians.map((guardian) => (
                   <Controller
                     key={guardian.id}
@@ -212,7 +269,7 @@ export function LocationShareCard() {
               name="duration"
               control={control}
               render={({ field }) => (
-                <Select onValueChange={field.onChange} defaultValue={field.value} disabled={availableGuardians.length === 0}>
+                <Select onValueChange={field.onChange} defaultValue={field.value} disabled={availableGuardians.length === 0 && errors.selectedGuardians !== undefined /* disable if no guardians OR if guardians are required but not selected */}>
                   <SelectTrigger id="duration">
                     <SelectValue placeholder="Select duration" />
                   </SelectTrigger>
@@ -235,14 +292,14 @@ export function LocationShareCard() {
               <Controller
                 name="customDurationMinutes"
                 control={control}
-                render={({ field }) => <Input id="customDurationMinutes" type="number" placeholder="e.g., 45" {...field} value={field.value ?? ''} onChange={e => field.onChange(e.target.value === '' ? '' : parseInt(e.target.value, 10))} disabled={availableGuardians.length === 0} />}
+                render={({ field }) => <Input id="customDurationMinutes" type="number" placeholder="e.g., 45" {...field} value={field.value ?? ''} onChange={e => field.onChange(e.target.value === '' ? '' : parseInt(e.target.value, 10))} disabled={availableGuardians.length === 0 && errors.selectedGuardians !== undefined} />}
               />
               {errors.customDurationMinutes && <p className="text-sm text-destructive">{errors.customDurationMinutes.message}</p>}
             </div>
           )}
         </CardContent>
         <CardFooter>
-          <Button type="submit" className="w-full bg-primary hover:bg-primary/90" disabled={availableGuardians.length === 0}>
+          <Button type="submit" className="w-full bg-primary hover:bg-primary/90" disabled={availableGuardians.length === 0 && errors.selectedGuardians !== undefined}>
             <Play className="mr-2 h-5 w-5" /> Start Sharing Location
           </Button>
         </CardFooter>
@@ -250,4 +307,3 @@ export function LocationShareCard() {
     </Card>
   );
 }
-
