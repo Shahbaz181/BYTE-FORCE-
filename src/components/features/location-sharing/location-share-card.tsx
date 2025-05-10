@@ -151,30 +151,54 @@ export function LocationShareCard() {
   const selectedDuration = watch('duration');
 
   const generateShareableLink = (): string => {
-    return `https://shesafe.app/live-location?session=${Date.now().toString(36)}`;
+    // In a real app, this would be a server-generated unique link
+    // For simulation, we use a timestamp-based link.
+    return `https://shesafe.app/live-location?session=${Date.now().toString(36)}-${Math.random().toString(36).substring(2,7)}`;
   };
 
   const onSubmit = (data: LocationShareFormData) => {
-    setIsSharing(true); 
-    setSharingDetails(data);
-    const generatedLink = generateShareableLink();
-    setShareableLink(generatedLink);
+    if (!navigator.geolocation) {
+      toast({ variant: "destructive", title: "Geolocation Error", description: "Geolocation is not supported by your browser. Cannot start sharing." });
+      return;
+    }
+    // Try to get an initial location fix before "starting" sharing UX-wise
+    navigator.geolocation.getCurrentPosition(
+        (position) => {
+            setCurrentLocation(position as GeoLocationPosition);
+            setLocationError(null);
+            
+            // Proceed with sharing setup
+            setIsSharing(true); 
+            setSharingDetails(data);
+            const generatedLink = generateShareableLink();
+            setShareableLink(generatedLink);
 
-    const durationLabel = data.duration === 'custom' 
-      ? `${data.customDurationMinutes} minutes` 
-      : shareDurations.find(d => d.value === data.duration)?.label;
-    
-    const selectedGuardianNames = data.selectedGuardians
-        .map(id => availableGuardians.find(g => g.id === id)?.name)
-        .filter(name => !!name)
-        .join(', ');
+            const durationLabel = data.duration === 'custom' 
+              ? `${data.customDurationMinutes} minutes` 
+              : shareDurations.find(d => d.value === data.duration)?.label;
+            
+            const selectedGuardianNames = data.selectedGuardians
+                .map(id => availableGuardians.find(g => g.id === id)?.name)
+                .filter(name => !!name)
+                .join(', ');
 
-    toast({
-      title: 'Location Sharing Started!',
-      description: `Your location is now being shared with ${selectedGuardianNames || 'the generated link'} for ${durationLabel}.`,
-      duration: 5000,
-    });
-    console.log('Location sharing started:', data, 'Link:', generatedLink);
+            toast({
+              title: 'Location Sharing Started!',
+              description: `Your location is now being shared with ${selectedGuardianNames || 'the generated link'} for ${durationLabel}.`,
+              duration: 5000,
+            });
+            console.log('Location sharing started:', data, 'Link:', generatedLink);
+        },
+        (error) => {
+            let message = "Could not get your location to start sharing.";
+            if (error.code === error.PERMISSION_DENIED) {
+              message = "Location access denied. Please enable it in your browser settings to start sharing.";
+            }
+            toast({ variant: "destructive", title: "Location Error", description: message });
+            setLocationError(message);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
   };
 
   const stopSharing = () => {
@@ -237,7 +261,7 @@ export function LocationShareCard() {
           <div>
             <Label className="text-sm font-medium">Shared with (Guardians):</Label>
             <p className="text-sm text-muted-foreground">
-              {selectedGuardianNames || "No specific guardians selected"}
+              {selectedGuardianNames || "No specific guardians selected (link sharing only)"}
             </p>
           </div>
           <div>
@@ -266,14 +290,17 @@ export function LocationShareCard() {
                 <p>Longitude: {currentLocation.coords.longitude.toFixed(6)}</p>
                 <p>Accuracy: {currentLocation.coords.accuracy.toFixed(0)} meters</p>
                 <p className="text-xs">Last update: {new Date(currentLocation.timestamp).toLocaleTimeString()}</p>
+                <Button variant="outline" size="sm" onClick={handleCopyLink} className="mt-2 w-full">
+                  <Copy className="mr-2 h-4 w-4" /> Copy Live Location Link
+                </Button>
               </div>
             )}
           </div>
           
           <div className="space-y-2 pt-4 border-t mt-4">
-            <Label htmlFor="shareableLink" className="text-sm font-medium">Share via Link:</Label>
+            <Label htmlFor="shareableLinkInput" className="text-sm font-medium">Share via Link:</Label>
             <div className="flex items-center space-x-2">
-              <Input id="shareableLink" type="text" value={shareableLink} readOnly className="flex-grow bg-muted" aria-label="Shareable location link"/>
+              <Input id="shareableLinkInput" type="text" value={shareableLink} readOnly className="flex-grow bg-muted" aria-label="Shareable location link"/>
               <Button variant="outline" size="icon" onClick={handleCopyLink} title="Copy Link">
                 <Copy className="h-4 w-4" />
                 <span className="sr-only">Copy link</span>
@@ -314,13 +341,13 @@ export function LocationShareCard() {
               <Users className="h-4 w-4" />
               <AlertTitle>No Available Contacts</AlertTitle>
               <AlertDescription>
-                Please add emergency contacts on the Dashboard or in Settings to enable location sharing.
-                Only contacts who haven't declined consent will appear here.
+                Please add emergency contacts on the Dashboard or in Settings to enable location sharing with specific guardians.
+                You can still share your location via a generated link without selecting specific contacts.
               </AlertDescription>
             </Alert>
           ) : (
             <div className="space-y-2">
-              <Label htmlFor="guardians" className="flex items-center"><Users className="mr-2 h-5 w-5" /> Select Guardians (up to 5)</Label>
+              <Label htmlFor="guardians" className="flex items-center"><Users className="mr-2 h-5 w-5" /> Select Guardians (up to 5, optional)</Label>
               <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
                 {availableGuardians.map((guardian) => (
                   <Controller
@@ -356,7 +383,9 @@ export function LocationShareCard() {
                   />
                 ))}
               </div>
+              {/* Making selectedGuardians optional by removing this error message or adjusting validation logic
               {errors.selectedGuardians && <p className="text-sm text-destructive pt-1">{errors.selectedGuardians.message}</p>}
+              */}
             </div>
           )}
 
@@ -374,7 +403,6 @@ export function LocationShareCard() {
                     }
                   }}
                   defaultValue={field.value} 
-                  disabled={availableGuardians.length === 0}
                 >
                   <SelectTrigger id="duration" aria-invalid={!!errors.duration}>
                     <SelectValue placeholder="Select duration" />
@@ -414,7 +442,6 @@ export function LocationShareCard() {
                             field.onChange(isNaN(num) ? undefined : num);
                         }
                     }}
-                    disabled={availableGuardians.length === 0} 
                     aria-invalid={!!errors.customDurationMinutes}
                   />
                 )}
@@ -427,7 +454,7 @@ export function LocationShareCard() {
           <Button 
             type="submit" 
             className="w-full bg-primary hover:bg-primary/90" 
-            disabled={availableGuardians.length === 0 || Object.keys(errors).length > 0}
+            disabled={Object.keys(errors).length > 0 && !(errors.selectedGuardians && availableGuardians.length > 0) /* Allow submission if only selectedGuardians error and it's optional */}
           >
             <Play className="mr-2 h-5 w-5" /> Start Sharing Location
           </Button>
