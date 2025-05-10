@@ -6,7 +6,7 @@ export default function DangerAlertsPage() {
     <div className="container mx-auto py-8">
       <PageHeaderTitle 
         title="AI-Powered Danger Alerts"
-        description="Stay informed about potential risks. Enter a location to see AI-analyzed community incident reports."
+        description="Stay informed about potential risks. Enter a location name to see AI-analyzed community incident reports."
       />
       <DangerAlertsDisplay />
     </div>

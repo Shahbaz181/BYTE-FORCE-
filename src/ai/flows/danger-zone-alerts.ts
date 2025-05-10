@@ -2,9 +2,9 @@
 'use server';
 
 /**
- * @fileOverview Implements the danger zone alerts feature using AI to analyze community incident reports.
+ * @fileOverview Implements the danger zone alerts feature using AI to analyze community incident reports based on a location name.
  *
- * - `getDangerZoneAlerts` - A function that retrieves danger zone alerts based on a location.
+ * - `getDangerZoneAlerts` - A function that retrieves danger zone alerts based on a location name.
  * - `DangerZoneAlertsInput` - The input type for the `getDangerZoneAlerts` function.
  * - `DangerZoneAlertsOutput` - The return type for the `getDangerZoneAlerts` function.
  */
@@ -13,8 +13,7 @@ import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
 const DangerZoneAlertsInputSchema = z.object({
-  latitude: z.number().describe('The latitude of the user.'),
-  longitude: z.number().describe('The longitude of the user.'),
+  locationName: z.string().describe('The name of the location to check for danger alerts (e.g., "City Park", "123 Main St, Anytown").'),
 });
 export type DangerZoneAlertsInput = z.infer<typeof DangerZoneAlertsInputSchema>;
 
@@ -25,7 +24,7 @@ const DangerZoneAlertsOutputSchema = z.object({
       description: z.string().describe('A description of the incident.'),
       severity: z.enum(['low', 'medium', 'high']).describe('The severity of the incident.'),
     })
-  ).describe('A list of danger zone alerts near the user.'),
+  ).describe('A list of danger zone alerts near the specified location.'),
 });
 export type DangerZoneAlertsOutput = z.infer<typeof DangerZoneAlertsOutputSchema>;
 
@@ -39,11 +38,12 @@ const dangerZoneAlertsPrompt = ai.definePrompt({
   output: {schema: DangerZoneAlertsOutputSchema},
   prompt: `You are an AI assistant designed to identify potential danger zones based on community incident reports.
 
-  Given the user's current location (latitude: {{{latitude}}}, longitude: {{{longitude}}}), analyze recent incident reports and identify any potential danger zones nearby.
-  Provide a list of alerts, including the location of the danger zone, a description of the incident, and a severity level (low, medium, or high).
-  Consider factors such as the type of incident, time of day, and proximity to the user's location when determining the severity level.
+  Given the user's specified location name: "{{{locationName}}}", analyze recent incident reports and identify any potential danger zones in or very near that location.
+  Provide a list of alerts, including the location of the danger zone (be specific if possible), a description of the incident, and a severity level (low, medium, or high).
+  Consider factors such as the type of incident, time of day, and relevance to the user's specified location when determining the severity level.
   Do not include any alerts that are more than 24 hours old.
-  Ensure the alerts are relevant to the user's current location and provide actionable information to help them take extra precautions.
+  Ensure the alerts are relevant to the user's specified location and provide actionable information to help them take extra precautions.
+  If the location name is ambiguous or too broad, try to provide general alerts for the most likely interpretation or state that the location is too broad for specific alerts.
   `,
 });
 
@@ -58,3 +58,4 @@ const dangerZoneAlertsFlow = ai.defineFlow(
     return output!;
   }
 );
+

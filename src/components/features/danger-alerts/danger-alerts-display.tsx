@@ -14,17 +14,12 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { getDangerZoneAlerts, type DangerZoneAlertsInput, type DangerZoneAlertsOutput } from '@/ai/flows/danger-zone-alerts';
 import { MapPin, AlertTriangle, Search, Loader2 } from 'lucide-react';
-import { cn } from '@/lib/utils'; // Imported cn
+import { cn } from '@/lib/utils'; 
+import { ShieldCheck } from 'lucide-react';
+
 
 const dangerAlertsSchema = z.object({
-  latitude: z.preprocess(
-    val => (String(val).trim() === '' ? undefined : parseFloat(String(val))), // Handle empty string for optional parsing
-    z.number().min(-90, "Invalid latitude").max(90, "Invalid latitude")
-  ),
-  longitude: z.preprocess(
-    val => (String(val).trim() === '' ? undefined : parseFloat(String(val))), // Handle empty string for optional parsing
-    z.number().min(-180, "Invalid longitude").max(180, "Invalid longitude")
-  ),
+  locationName: z.string().min(3, "Location name must be at least 3 characters.").max(100, "Location name cannot exceed 100 characters."),
 });
 
 type DangerAlertsFormData = z.infer<typeof dangerAlertsSchema>;
@@ -34,11 +29,10 @@ export function DangerAlertsDisplay() {
   const [alerts, setAlerts] = useState<DangerZoneAlertsOutput['alerts'] | null>(null);
   const { toast } = useToast();
 
-  const { control, handleSubmit, formState: { errors } } = useForm<DangerAlertsFormData>({
+  const { control, handleSubmit, formState: { errors }, reset } = useForm<DangerAlertsFormData>({
     resolver: zodResolver(dangerAlertsSchema),
     defaultValues: {
-      latitude: '', 
-      longitude: '',
+      locationName: '', 
     },
   });
 
@@ -79,26 +73,17 @@ export function DangerAlertsDisplay() {
         <form onSubmit={handleSubmit(onSubmit)}>
           <CardHeader>
             <CardTitle className="flex items-center"><MapPin className="mr-2 h-6 w-6" /> Check Danger Zones</CardTitle>
-            <CardDescription>Enter your current or intended location to check for AI-powered community alerts.</CardDescription>
+            <CardDescription>Enter a location name (e.g., "City Park", "Downtown Plaza") to check for AI-powered community alerts.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="latitude">Latitude</Label>
+              <Label htmlFor="locationName">Location Name</Label>
               <Controller
-                name="latitude"
+                name="locationName"
                 control={control}
-                render={({ field }) => <Input id="latitude" type="number" step="any" placeholder="e.g., 34.0522" {...field} onChange={e => field.onChange(e.target.value === '' ? '' : parseFloat(e.target.value))} />}
+                render={({ field }) => <Input id="locationName" type="text" placeholder="e.g., Central Park, New York" {...field} />}
               />
-              {errors.latitude && <p className="text-sm text-destructive">{errors.latitude.message}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="longitude">Longitude</Label>
-              <Controller
-                name="longitude"
-                control={control}
-                render={({ field }) => <Input id="longitude" type="number" step="any" placeholder="e.g., -118.2437" {...field} onChange={e => field.onChange(e.target.value === '' ? '' : parseFloat(e.target.value))} />}
-              />
-              {errors.longitude && <p className="text-sm text-destructive">{errors.longitude.message}</p>}
+              {errors.locationName && <p className="text-sm text-destructive">{errors.locationName.message}</p>}
             </div>
           </CardContent>
           <CardFooter>
@@ -133,7 +118,7 @@ export function DangerAlertsDisplay() {
             />
             {alerts.map((alert, index) => (
               <Alert key={index} className={cn("border-2", severityColor(alert.severity))}>
-                <AlertTriangle className={cn("h-5 w-5", severityColor(alert.severity).split(' ')[2])} />
+                <AlertTriangle className={cn("h-5 w-5", severityColor(alert.severity).split(' ')[2])} /> {/* Ensure icon color matches text */}
                 <AlertTitle className="font-semibold">{alert.location}</AlertTitle>
                 <AlertDescription>
                   <p>{alert.description}</p>
@@ -166,13 +151,3 @@ export function DangerAlertsDisplay() {
     </div>
   );
 }
-
-// Placeholder for ShieldCheck icon if not available or for specific styling.
-// Using ShieldAlert for now, which is available.
-const ShieldCheck = ({className}: {className?: string}) => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={cn("lucide lucide-shield-check", className)}>
-    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-    <path d="m9 12 2 2 4-4"></path>
-  </svg>
-);
-
