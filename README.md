@@ -38,6 +38,20 @@ Students commuting daily
 Solo travelers and working professionals
 Anyone who wants an extra layer of safety
 
+## Preview of the App
+ # 1. WELCOME TO THE APP
+![1](https://github.com/user-attachments/assets/b7e4fd8e-913c-4159-905d-1e8be5d279e0)
+
+# 2. DASHBOARD OF THE APP
+![2](https://github.com/user-attachments/assets/f433d5a6-8040-46fb-9065-07f439888f1c)
+
+# 3. ADDING THE CONTACTS
+![3](https://github.com/user-attachments/assets/b511d45e-f78e-4edb-be82-39fbf53e0093)
+
+# 4. REAL-TIME LOCATION SHAREING
+![4](https://github.com/user-attachments/assets/2393d758-3d16-49e9-a22b-fbcca83479d6)
+![5](https://github.com/user-attachments/assets/d55b331f-bd99-47e8-94b6-75b41a138e3f)
+
 ## License
 
 This project is licensed under the MIT License – free to use, modify, and share.
