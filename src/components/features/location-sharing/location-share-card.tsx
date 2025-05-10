@@ -1,7 +1,7 @@
 // src/components/features/location-sharing/location-share-card.tsx
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -30,16 +30,20 @@ const locationShareSchema = z.object({
   selectedGuardians: z.array(z.string()).min(1, "Select at least one guardian."),
   duration: z.string().min(1, "Select a duration."),
   customDurationMinutes: z.preprocess(
-    (val) => (String(val).trim() === "" ? undefined : Number(val)),
-    z.number().positive("Custom duration must be positive.").optional()
+    (val) => {
+      if (String(val).trim() === "" || val === undefined || val === null) return undefined;
+      const num = Number(val);
+      return isNaN(num) ? undefined : num;
+    },
+    z.number().positive("Custom duration must be a positive number.").optional()
   ),
 }).refine(data => {
-  if (data.duration === 'custom' && (data.customDurationMinutes === undefined || data.customDurationMinutes <=0)) {
-    return false;
+  if (data.duration === 'custom') {
+    return data.customDurationMinutes !== undefined && data.customDurationMinutes > 0;
   }
   return true;
 }, {
-  message: "Please enter a valid custom duration.",
+  message: "Please enter a valid custom duration (positive number).",
   path: ["customDurationMinutes"],
 });
 
@@ -77,21 +81,21 @@ export function LocationShareCard() {
         setAvailableGuardians([]);
       }
     }
-  }, [isSharing]); // Reload guardians if sharing status changes, e.g. to update list if contacts were added
+  }, []); // Load guardians once on mount
 
-  const startRealTimeLocationSharing = () => {
+  const startRealTimeLocationSharing = useCallback(() => {
     if (!navigator.geolocation) {
       setLocationError("Geolocation is not supported by your browser.");
-      toast({ variant: "destructive", title: "Geolocation Error", description: "Geolocation is not supported." });
+      toast({ variant: "destructive", title: "Geolocation Error", description: "Geolocation is not supported by your browser." });
       return;
     }
 
     setLocationError(null);
-    setCurrentLocation(null); // Reset location while fetching new one
+    setCurrentLocation(null); 
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
-        setCurrentLocation(position as GeoLocationPosition); // Cast to include accuracy
+        setCurrentLocation(position as GeoLocationPosition); 
         setLocationError(null);
       },
       (error) => {
@@ -109,20 +113,19 @@ export function LocationShareCard() {
       },
       {
         enableHighAccuracy: true,
-        timeout: 10000, // 10 seconds
-        maximumAge: 0, // Force fresh location
+        timeout: 10000, 
+        maximumAge: 0, 
       }
     );
-  };
+  }, [toast]);
 
-  const stopRealTimeLocationSharing = () => {
+  const stopRealTimeLocationSharing = useCallback(() => {
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
-    setCurrentLocation(null);
-    // Do not clear locationError here, it might be a persistent issue like "not supported"
-  };
+    //setCurrentLocation(null); // Keep last known location or clear, depends on desired UX. Clearing is safer.
+  }, []);
 
   useEffect(() => {
     if (isSharing) {
@@ -130,10 +133,10 @@ export function LocationShareCard() {
     } else {
       stopRealTimeLocationSharing();
     }
-    return () => { // Cleanup on component unmount
+    return () => { 
       stopRealTimeLocationSharing();
     };
-  }, [isSharing]);
+  }, [isSharing, startRealTimeLocationSharing, stopRealTimeLocationSharing]);
 
 
   const { control, handleSubmit, watch, formState: { errors }, setValue } = useForm<LocationShareFormData>({
@@ -141,19 +144,18 @@ export function LocationShareCard() {
     defaultValues: {
       selectedGuardians: [],
       duration: '30',
-      customDurationMinutes: undefined, // Ensure it's undefined initially
+      customDurationMinutes: undefined, 
     },
   });
 
   const selectedDuration = watch('duration');
 
   const generateShareableLink = (): string => {
-    // In a real app, this would be a unique session ID from the backend
     return `https://shesafe.app/live-location?session=${Date.now().toString(36)}`;
   };
 
   const onSubmit = (data: LocationShareFormData) => {
-    setIsSharing(true); // This will trigger the useEffect to start location sharing
+    setIsSharing(true); 
     setSharingDetails(data);
     const generatedLink = generateShareableLink();
     setShareableLink(generatedLink);
@@ -169,16 +171,18 @@ export function LocationShareCard() {
 
     toast({
       title: 'Location Sharing Started!',
-      description: `Your location is now being shared with ${selectedGuardianNames} for ${durationLabel}. You can also share a link.`,
+      description: `Your location is now being shared with ${selectedGuardianNames || 'the generated link'} for ${durationLabel}.`,
       duration: 5000,
     });
     console.log('Location sharing started:', data, 'Link:', generatedLink);
   };
 
   const stopSharing = () => {
-    setIsSharing(false); // This will trigger the useEffect to stop location sharing
+    setIsSharing(false); 
     setSharingDetails(null);
     setShareableLink('');
+    setCurrentLocation(null); // Clear current location when stopping
+    setLocationError(null); // Clear any location errors
     toast({
       title: 'Location Sharing Stopped',
       description: 'You are no longer sharing your location.',
@@ -253,7 +257,7 @@ export function LocationShareCard() {
             {!currentLocation && !locationError && (
               <div className="flex items-center text-sm text-muted-foreground mt-1">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Fetching location...
+                Fetching location... (Ensure browser permissions are granted)
               </div>
             )}
             {currentLocation && (
@@ -338,12 +342,12 @@ export function LocationShareCard() {
                             const currentSelection = field.value || [];
                             if (checked) {
                               if (currentSelection.length < 5) {
-                                setValue("selectedGuardians", [...currentSelection, guardian.id]);
+                                setValue("selectedGuardians", [...currentSelection, guardian.id], { shouldValidate: true });
                               } else {
                                  toast({ title: "Limit Reached", description: "You can select up to 5 guardians.", variant: "destructive"});
                               }
                             } else {
-                              setValue("selectedGuardians", currentSelection.filter((id) => id !== guardian.id));
+                              setValue("selectedGuardians", currentSelection.filter((id) => id !== guardian.id), { shouldValidate: true });
                             }
                           }}
                         />
@@ -352,7 +356,7 @@ export function LocationShareCard() {
                   />
                 ))}
               </div>
-              {errors.selectedGuardians && <p className="text-sm text-destructive">{errors.selectedGuardians.message}</p>}
+              {errors.selectedGuardians && <p className="text-sm text-destructive pt-1">{errors.selectedGuardians.message}</p>}
             </div>
           )}
 
@@ -363,11 +367,16 @@ export function LocationShareCard() {
               control={control}
               render={({ field }) => (
                 <Select 
-                  onValueChange={field.onChange} 
+                  onValueChange={(value) => {
+                    field.onChange(value);
+                    if (value !== 'custom') {
+                      setValue('customDurationMinutes', undefined, { shouldValidate: true });
+                    }
+                  }}
                   defaultValue={field.value} 
-                  disabled={availableGuardians.length === 0 || !!errors.selectedGuardians}
+                  disabled={availableGuardians.length === 0}
                 >
-                  <SelectTrigger id="duration">
+                  <SelectTrigger id="duration" aria-invalid={!!errors.duration}>
                     <SelectValue placeholder="Select duration" />
                   </SelectTrigger>
                   <SelectContent>
@@ -380,7 +389,7 @@ export function LocationShareCard() {
                 </Select>
               )}
             />
-            {errors.duration && <p className="text-sm text-destructive">{errors.duration.message}</p>}
+            {errors.duration && <p className="text-sm text-destructive pt-1">{errors.duration.message}</p>}
           </div>
 
           {selectedDuration === 'custom' && (
@@ -395,21 +404,31 @@ export function LocationShareCard() {
                     type="number" 
                     placeholder="e.g., 45" 
                     {...field} 
-                    value={field.value === undefined ? '' : field.value} // Handle undefined for empty input
+                    value={field.value === undefined ? '' : String(field.value)}
                     onChange={e => {
-                        const value = e.target.value;
-                        field.onChange(value === '' ? undefined : parseInt(value, 10));
+                        const valStr = e.target.value;
+                        if (valStr === '') {
+                            field.onChange(undefined);
+                        } else {
+                            const num = parseFloat(valStr);
+                            field.onChange(isNaN(num) ? undefined : num);
+                        }
                     }}
-                    disabled={availableGuardians.length === 0 || !!errors.selectedGuardians} 
+                    disabled={availableGuardians.length === 0} 
+                    aria-invalid={!!errors.customDurationMinutes}
                   />
                 )}
               />
-              {errors.customDurationMinutes && <p className="text-sm text-destructive">{errors.customDurationMinutes.message}</p>}
+              {errors.customDurationMinutes && <p className="text-sm text-destructive pt-1">{errors.customDurationMinutes.message}</p>}
             </div>
           )}
         </CardContent>
         <CardFooter>
-          <Button type="submit" className="w-full bg-primary hover:bg-primary/90" disabled={availableGuardians.length === 0 || !!errors.selectedGuardians}>
+          <Button 
+            type="submit" 
+            className="w-full bg-primary hover:bg-primary/90" 
+            disabled={availableGuardians.length === 0 || Object.keys(errors).length > 0}
+          >
             <Play className="mr-2 h-5 w-5" /> Start Sharing Location
           </Button>
         </CardFooter>
