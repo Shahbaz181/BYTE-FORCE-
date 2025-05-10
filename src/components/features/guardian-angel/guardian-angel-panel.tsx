@@ -16,14 +16,7 @@ import { Ear, MapPin, TrendingUp, Shield, Play, StopCircle, Mic, Loader2, AlertT
 import Image from 'next/image';
 
 const guardianAngelSchema = z.object({
-  latitude: z.preprocess(
-    val => (String(val).trim() === '' ? undefined : parseFloat(String(val))),
-    z.number().min(-90, "Invalid latitude").max(90, "Invalid latitude")
-  ),
-  longitude: z.preprocess(
-    val => (String(val).trim() === '' ? undefined : parseFloat(String(val))),
-    z.number().min(-180, "Invalid longitude").max(180, "Invalid longitude")
-  ),
+  placeName: z.string().min(3, "Place name must be at least 3 characters.").max(100, "Place name cannot exceed 100 characters."),
   movementData: z.string().min(3, "Describe movement briefly, e.g., 'walking fast', 'stationary'.").max(100),
   // audioDataUri is handled separately
 });
@@ -43,8 +36,7 @@ export function GuardianAngelPanel() {
   const { control, handleSubmit, formState: { errors }, reset } = useForm<GuardianAngelFormData>({
     resolver: zodResolver(guardianAngelSchema),
     defaultValues: {
-      latitude: '',
-      longitude: '',
+      placeName: '',
       movementData: '',
     }
   });
@@ -114,7 +106,8 @@ export function GuardianAngelPanel() {
     setIsLoading(true);
     setAnalysisResult(null);
     const input: AnalyzeUserContextInput = {
-      ...data,
+      placeName: data.placeName,
+      movementData: data.movementData,
       audioDataUri,
     };
 
@@ -192,25 +185,16 @@ export function GuardianAngelPanel() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="latitude" className="flex items-center"><MapPin className="mr-2 h-5 w-5" /> Latitude</Label>
+            <Label htmlFor="placeName" className="flex items-center"><MapPin className="mr-2 h-5 w-5" /> Location Name</Label>
             <Controller
-              name="latitude"
+              name="placeName"
               control={control}
-              render={({ field }) => <Input id="latitude" type="number" step="any" placeholder="e.g., 34.0522" {...field} onChange={e => field.onChange(e.target.value === '' ? '' : parseFloat(e.target.value))}/>}
+              render={({ field }) => <Input id="placeName" type="text" placeholder="e.g., City Park, near the fountain" {...field} />}
             />
-            {errors.latitude && <p className="text-sm text-destructive">{errors.latitude.message}</p>}
+            {errors.placeName && <p className="text-sm text-destructive">{errors.placeName.message}</p>}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="longitude" className="flex items-center"><MapPin className="mr-2 h-5 w-5" /> Longitude</Label>
-            <Controller
-              name="longitude"
-              control={control}
-              render={({ field }) => <Input id="longitude" type="number" step="any" placeholder="e.g., -118.2437" {...field} onChange={e => field.onChange(e.target.value === '' ? '' : parseFloat(e.target.value))}/>}
-            />
-            {errors.longitude && <p className="text-sm text-destructive">{errors.longitude.message}</p>}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="movementData" className="flex items-center"><TrendingUp className="mr-2 h-5 w-5" /> Movement Data</Label>
+            <Label htmlFor="movementData" className="flex items-center"><TrendingUp className="mr-2 h-5 w-5" /> Movement Data / Description</Label>
             <Controller
               name="movementData"
               control={control}
