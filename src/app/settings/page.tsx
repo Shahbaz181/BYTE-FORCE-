@@ -4,10 +4,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { ManageGuardians } from '@/components/features/settings/manage-guardians'; // Added import
 
 export default function SettingsPage() {
   return (
-    <div className="container mx-auto py-8">
+    <div className="container mx-auto py-8 space-y-6">
       <PageHeaderTitle 
         title="Settings"
         description="Manage your SheSafe application preferences and account details."
@@ -55,21 +56,11 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
-
-         <Card className="md:col-span-2">
-          <CardHeader>
-            <CardTitle>Emergency Contacts (Guardians)</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Placeholder for managing guardians */}
-            <p className="text-muted-foreground">Manage your list of trusted emergency contacts here. (Functionality to add/edit guardians would be implemented here).</p>
-            <ul className="space-y-2">
-                <li className="flex justify-between items-center p-2 border rounded-md"><span>Mom (contact@example.com)</span> <Button variant="outline" size="sm">Edit</Button></li>
-                <li className="flex justify-between items-center p-2 border rounded-md"><span>Alex (friend@example.com)</span> <Button variant="outline" size="sm">Edit</Button></li>
-            </ul>
-            <Button variant="default">Add New Guardian</Button>
-          </CardContent>
-        </Card>
+      </div>
+      
+      {/* Replaced placeholder with ManageGuardians component */}
+      <div className="mt-6">
+        <ManageGuardians />
       </div>
     </div>
   );
