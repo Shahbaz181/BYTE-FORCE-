@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { ManageGuardians } from '@/components/features/settings/manage-guardians'; // Added import
+import { ManageGuardians } from '@/components/features/settings/manage-guardians';
 
 export default function SettingsPage() {
   return (
@@ -58,10 +58,10 @@ export default function SettingsPage() {
         </Card>
       </div>
       
-      {/* Replaced placeholder with ManageGuardians component */}
       <div className="mt-6">
         <ManageGuardians />
       </div>
     </div>
   );
 }
+

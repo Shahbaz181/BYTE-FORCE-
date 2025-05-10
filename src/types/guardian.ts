@@ -24,3 +24,4 @@ export const PRIORITY_LEVELS: PriorityLevel[] = [1, 2, 3, 4, 5];
 export const RELATION_SUGGESTIONS = [
   "Mother", "Father", "Sibling", "Spouse", "Partner", "Friend", "Relative", "Neighbor", "Colleague", "Other"
 ];
+
