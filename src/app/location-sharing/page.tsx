@@ -1,14 +1,14 @@
-import { StandaloneAddContactForm } from '@/components/features/contacts/standalone-add-contact-form';
+import { LocationShareCard } from '@/components/features/location-sharing/location-share-card';
 import { PageHeaderTitle } from '@/components/common/page-header-title';
 
-export default function AddContactsPage() {
+export default function LocationSharingPage() {
   return (
     <div className="container mx-auto py-8">
       <PageHeaderTitle 
-        title="Add Emergency Contact"
-        description="Enter the name and phone number of your trusted contact."
+        title="Real-Time Location Sharing"
+        description="Share your live location with trusted contacts for enhanced safety during your commute or outings."
       />
-      <StandaloneAddContactForm />
+      <LocationShareCard />
     </div>
   );
 }
